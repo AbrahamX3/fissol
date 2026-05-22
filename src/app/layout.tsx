@@ -30,7 +30,7 @@ export const metadata: Metadata = {
 				media: "(prefers-color-scheme: dark)",
 			},
 		],
-		apple: "/fissol-black.png",
+		apple: "/apple-touch-icon.png",
 	},
 };
 
