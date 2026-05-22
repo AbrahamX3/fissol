@@ -287,13 +287,7 @@ export type TabCounts = {
 	nearMe?: number;
 };
 
-function TabCountBadge({
-	count,
-	active,
-}: {
-	count?: number;
-	active: boolean;
-}) {
+function TabCountBadge({ count, active }: { count?: number; active: boolean }) {
 	if (count === undefined) return null;
 
 	return (
@@ -384,9 +378,7 @@ function FeedControls({
 							className="text-xs"
 						>
 							{timeRangeLabels[r]}
-							{r === timeRange && (
-								<CheckIcon className="ml-auto size-3.5" />
-							)}
+							{r === timeRange && <CheckIcon className="ml-auto size-3.5" />}
 						</DropdownMenuItem>
 					))}
 				</DropdownMenuContent>
@@ -604,8 +596,8 @@ export function EarthquakePanel({
 										{listMode === "nearMe" && canShowNearMe && (
 											<p className="text-muted-foreground max-w-[220px] text-xs">
 												No events in the last {timeRangeLabels[timeRange]}{" "}
-												within about {nearMeRadiusKm}&nbsp;km. Try a longer
-												time range or move the map and use locate again.
+												within about {nearMeRadiusKm}&nbsp;km. Try a longer time
+												range or move the map and use locate again.
 											</p>
 										)}
 									</div>

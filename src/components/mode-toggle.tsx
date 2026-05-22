@@ -1,8 +1,8 @@
 "use client";
 
-import type { ComponentProps } from "react";
 import { CheckIcon, Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
+import type { ComponentProps } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -50,15 +50,10 @@ export function ModeToggle({
 				<TooltipContent side="bottom">Theme</TooltipContent>
 			</Tooltip>
 			<DropdownMenuContent align="end" className="min-w-32">
-				<DropdownMenuItem
-					onClick={() => setTheme("light")}
-					className="text-xs"
-				>
+				<DropdownMenuItem onClick={() => setTheme("light")} className="text-xs">
 					<Sun className="size-3.5" />
 					Light
-					{theme === "light" && (
-						<CheckIcon className="ml-auto size-3.5" />
-					)}
+					{theme === "light" && <CheckIcon className="ml-auto size-3.5" />}
 				</DropdownMenuItem>
 				<DropdownMenuItem onClick={() => setTheme("dark")} className="text-xs">
 					<Moon className="size-3.5" />
@@ -71,9 +66,7 @@ export function ModeToggle({
 				>
 					<Monitor className="size-3.5" />
 					System
-					{theme === "system" && (
-						<CheckIcon className="ml-auto size-3.5" />
-					)}
+					{theme === "system" && <CheckIcon className="ml-auto size-3.5" />}
 				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
