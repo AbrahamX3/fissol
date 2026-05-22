@@ -24,6 +24,7 @@ import { Activity, memo, useCallback, useMemo } from "react";
 import { VList } from "virtua";
 
 import type { TimeRange } from "@/app/page";
+import { ModeToggle } from "@/components/mode-toggle";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -280,11 +281,75 @@ const timeRangeLabels: Record<TimeRange, string> = {
 	month: "Past Month",
 };
 
+export type TabCounts = {
+	all?: number;
+	significant?: number;
+	nearMe?: number;
+};
+
+function TabCountBadge({
+	count,
+	active,
+}: {
+	count?: number;
+	active: boolean;
+}) {
+	if (count === undefined) return null;
+
+	return (
+		<span
+			className={`inline-flex min-w-4 items-center justify-center rounded-full px-1 py-px text-[9px] leading-none font-semibold tabular-nums ${
+				active
+					? "bg-primary/15 text-foreground"
+					: "bg-muted-foreground/15 text-muted-foreground"
+			}`}
+			aria-hidden
+		>
+			<NumberFlow
+				locales="en-US"
+				format={{ maximumFractionDigits: 0, useGrouping: true }}
+				value={count}
+			/>
+		</span>
+	);
+}
+
+function ListModeTab({
+	label,
+	count,
+	active,
+	title,
+	onClick,
+}: {
+	label: string;
+	count?: number;
+	active: boolean;
+	title?: string;
+	onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			title={title}
+			className={`flex min-w-0 flex-1 items-center justify-center gap-1 rounded-sm px-1 py-1 text-[10px] font-medium transition-colors sm:px-1.5 sm:text-[11px] ${
+				active
+					? "bg-card text-foreground shadow-sm"
+					: "text-muted-foreground hover:text-foreground"
+			}`}
+		>
+			<span className="truncate">{label}</span>
+			<TabCountBadge count={count} active={active} />
+		</button>
+	);
+}
+
 function FeedControls({
 	timeRange,
 	listMode,
 	canShowNearMe,
 	nearMeRadiusKm,
+	tabCounts,
 	onTimeRangeChange,
 	onListModeChange,
 }: {
@@ -292,6 +357,7 @@ function FeedControls({
 	listMode: ListMode;
 	canShowNearMe: boolean;
 	nearMeRadiusKm: number;
+	tabCounts: TabCounts;
 	onTimeRangeChange: (v: TimeRange) => void;
 	onListModeChange: (v: ListMode) => void;
 }) {
@@ -327,33 +393,30 @@ function FeedControls({
 			</DropdownMenu>
 
 			<div className="bg-muted flex min-w-0 flex-1 rounded-sm p-0.5">
-				<button
-					type="button"
+				<ListModeTab
+					label="All"
+					count={tabCounts.all}
+					active={listMode === "all"}
 					onClick={() => onListModeChange("all")}
-					className={`min-w-0 flex-1 rounded-sm px-1.5 py-1 text-[10px] font-medium transition-colors sm:px-2 sm:text-[11px] ${listMode === "all" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-				>
-					All
-				</button>
-				<button
-					type="button"
+				/>
+				<ListModeTab
+					label="Significant"
+					count={tabCounts.significant}
+					active={listMode === "significant"}
 					onClick={() => onListModeChange("significant")}
-					className={`min-w-0 flex-1 rounded-sm px-1.5 py-1 text-[10px] font-medium transition-colors sm:px-2 sm:text-[11px] ${listMode === "significant" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-				>
-					Significant
-				</button>
+				/>
 				{canShowNearMe ? (
-					<button
-						type="button"
-						onClick={() => onListModeChange("nearMe")}
+					<ListModeTab
+						label="Near me"
+						count={tabCounts.nearMe}
+						active={listMode === "nearMe"}
 						title={
 							listMode === "nearMe"
 								? `Within about ${nearMeRadiusKm} km`
 								: undefined
 						}
-						className={`min-w-0 flex-1 rounded-sm px-1.5 py-1 text-[10px] font-medium transition-colors sm:px-2 sm:text-[11px] ${listMode === "nearMe" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-					>
-						Near me
-					</button>
+						onClick={() => onListModeChange("nearMe")}
+					/>
 				) : null}
 			</div>
 		</div>
@@ -369,6 +432,7 @@ export function EarthquakePanel({
 	nearMeRadiusKm,
 	canShowNearMe,
 	nearMeCenter,
+	tabCounts,
 	onSelect,
 	onRefresh,
 	onTimeRangeChange,
@@ -386,6 +450,7 @@ export function EarthquakePanel({
 	canShowNearMe: boolean;
 	/** Distance sort + list row badges when Near me tab is selected */
 	nearMeCenter: { lat: number; lng: number } | null;
+	tabCounts: TabCounts;
 	showRings: boolean;
 	onSelect: (id: string | null) => void;
 	onRefresh: () => void;
@@ -435,48 +500,54 @@ export function EarthquakePanel({
 		<div className="flex h-full flex-col bg-card">
 			<div className="flex items-center justify-between gap-3 border-b px-3 py-2.5">
 				<div className="flex min-w-0 flex-1 items-center gap-2">
-					<ActivityIcon className="text-primary size-4 shrink-0" />
-					<h2 className="truncate text-sm font-medium">Earthquakes</h2>
-					<span
-						className="text-muted-foreground inline-flex min-h-5 shrink-0 items-baseline gap-px text-xs tabular-nums"
-						aria-label={`${features.length} earthquakes in list`}
-					>
-						<span aria-hidden>(</span>
-						<NumberFlow
-							locales="en-US"
-							format={{ maximumFractionDigits: 0, useGrouping: true }}
-							value={features.length}
-						/>
-						<span aria-hidden>)</span>
-					</span>
+					<ActivityIcon className="text-primary size-4 shrink-0" aria-hidden />
+					<h2 className="truncate text-sm font-semibold tracking-tight">
+						Fissol
+					</h2>
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
-					<Button
-						variant="ghost"
-						size="icon"
-						onClick={() => onShowRingsChange(!showRings)}
-						title={showRings ? "Hide rings" : "Show rings"}
-						className="size-7 shrink-0"
-					>
-						{showRings ? (
-							<Circle className="size-3.5 fill-current" />
-						) : (
-							<Circle className="size-3.5" />
-						)}
-					</Button>
-					<Button
-						variant="ghost"
-						size="icon"
-						onClick={onRefresh}
-						disabled={isRefetching}
-						className="size-7 shrink-0"
-					>
-						{isRefetching ? (
-							<Loader2 className="size-3.5 animate-spin" />
-						) : (
-							<RefreshCw className="size-3.5" />
-						)}
-					</Button>
+					<ModeToggle variant="ghost" className="size-7" />
+					<Tooltip delayDuration={300}>
+						<TooltipTrigger asChild>
+							<Button
+								variant="ghost"
+								size="icon"
+								onClick={() => onShowRingsChange(!showRings)}
+								className="size-7 shrink-0"
+							>
+								{showRings ? (
+									<Circle className="size-3.5 fill-current" />
+								) : (
+									<Circle className="size-3.5" />
+								)}
+								<span className="sr-only">
+									{showRings ? "Hide reach rings" : "Show reach rings"}
+								</span>
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent side="bottom">
+							{showRings ? "Hide reach rings" : "Show reach rings"}
+						</TooltipContent>
+					</Tooltip>
+					<Tooltip delayDuration={300}>
+						<TooltipTrigger asChild>
+							<Button
+								variant="ghost"
+								size="icon"
+								onClick={onRefresh}
+								disabled={isRefetching}
+								className="size-7 shrink-0"
+							>
+								{isRefetching ? (
+									<Loader2 className="size-3.5 animate-spin" />
+								) : (
+									<RefreshCw className="size-3.5" />
+								)}
+								<span className="sr-only">Refresh earthquakes</span>
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent side="bottom">Refresh earthquakes</TooltipContent>
+					</Tooltip>
 				</div>
 			</div>
 
@@ -489,6 +560,7 @@ export function EarthquakePanel({
 								listMode={listMode}
 								canShowNearMe={canShowNearMe}
 								nearMeRadiusKm={nearMeRadiusKm}
+								tabCounts={tabCounts}
 								onTimeRangeChange={onTimeRangeChange}
 								onListModeChange={onListModeChange}
 							/>

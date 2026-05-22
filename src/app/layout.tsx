@@ -17,8 +17,21 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-	title: "fissol",
-	description: "fissol",
+	title: "Fissol | Earthquake Visualizer",
+	description: "Visualize all earthquakes all in one place.",
+	icons: {
+		icon: [
+			{
+				url: "/fissol-black.png",
+				media: "(prefers-color-scheme: light)",
+			},
+			{
+				url: "/fissol-white.png",
+				media: "(prefers-color-scheme: dark)",
+			},
+		],
+		apple: "/fissol-black.png",
+	},
 };
 
 export default function RootLayout({

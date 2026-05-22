@@ -1,12 +1,15 @@
 "use client";
 
-import NumberFlow from "@number-flow/react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ChevronUp, List } from "lucide-react";
+import { Activity, ChevronUp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { EarthquakeMap } from "@/components/earthquake-map";
-import { EarthquakePanel, type ListMode } from "@/components/earthquake-panel";
+import {
+	EarthquakePanel,
+	type ListMode,
+	type TabCounts,
+} from "@/components/earthquake-panel";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import {
@@ -20,7 +23,6 @@ import {
 	writeNearMeCoordsToStorage,
 } from "@/lib/near-me-coords";
 import { cn } from "@/lib/utils";
-import type { FeedName } from "@/server/routers/earthquake";
 import { orpc } from "@/utils/orpc";
 
 export type TimeRange = "hour" | "day" | "week" | "month";
@@ -51,19 +53,23 @@ export default function Home() {
 
 	const isMobile = useIsMobile();
 
-	const feed = useMemo((): FeedName => {
-		const prefix = listMode === "significant" ? "significant" : "all";
-		return `${prefix}_${timeRange}`;
-	}, [listMode, timeRange]);
+	const allFeed = `all_${timeRange}` as const;
+	const significantFeed = `significant_${timeRange}` as const;
 
 	const nearMeStartISO = useMemo(
 		() => startTimeISOForEarthquakeRange(timeRange),
 		[timeRange],
 	);
 
-	const feedQuery = useQuery({
-		...orpc.earthquake.getFeed.queryOptions({ input: { feed } }),
-		enabled: listMode !== "nearMe",
+	const allFeedQuery = useQuery({
+		...orpc.earthquake.getFeed.queryOptions({ input: { feed: allFeed } }),
+		placeholderData: keepPreviousData,
+	});
+
+	const significantFeedQuery = useQuery({
+		...orpc.earthquake.getFeed.queryOptions({
+			input: { feed: significantFeed },
+		}),
 		placeholderData: keepPreviousData,
 	});
 
@@ -77,7 +83,7 @@ export default function Home() {
 				limit: NEAR_ME_QUERY_LIMIT,
 			},
 		}),
-		enabled: listMode === "nearMe" && nearMeCoords !== null,
+		enabled: nearMeCoords !== null,
 		placeholderData: keepPreviousData,
 	});
 
@@ -111,23 +117,50 @@ export default function Home() {
 		setListMode(mode);
 	}, []);
 
-	const features =
-		listMode === "nearMe"
-			? (nearMeQuery.data?.features ?? [])
-			: (feedQuery.data?.features ?? []);
+	const features = useMemo(() => {
+		if (listMode === "nearMe") return nearMeQuery.data?.features ?? [];
+		if (listMode === "significant")
+			return significantFeedQuery.data?.features ?? [];
+		return allFeedQuery.data?.features ?? [];
+	}, [
+		listMode,
+		allFeedQuery.data?.features,
+		significantFeedQuery.data?.features,
+		nearMeQuery.data?.features,
+	]);
+
+	const tabCounts = useMemo((): TabCounts => {
+		return {
+			all: allFeedQuery.data?.features.length,
+			significant: significantFeedQuery.data?.features.length,
+			nearMe: nearMeCoords ? nearMeQuery.data?.features.length : undefined,
+		};
+	}, [
+		allFeedQuery.data?.features.length,
+		significantFeedQuery.data?.features.length,
+		nearMeQuery.data?.features.length,
+		nearMeCoords,
+	]);
 
 	const isLoading =
-		listMode === "nearMe" ? nearMeQuery.isLoading : feedQuery.isLoading;
+		listMode === "nearMe"
+			? nearMeQuery.isLoading
+			: listMode === "significant"
+				? significantFeedQuery.isLoading
+				: allFeedQuery.isLoading;
 
 	const isRefetching =
 		listMode === "nearMe"
 			? nearMeQuery.isFetching && !nearMeQuery.isLoading
-			: feedQuery.isFetching && !feedQuery.isLoading;
+			: listMode === "significant"
+				? significantFeedQuery.isFetching && !significantFeedQuery.isLoading
+				: allFeedQuery.isFetching && !allFeedQuery.isLoading;
 
 	const refetchActive = useCallback(() => {
-		if (listMode === "nearMe") void nearMeQuery.refetch();
-		else void feedQuery.refetch();
-	}, [listMode, nearMeQuery, feedQuery]);
+		void allFeedQuery.refetch();
+		void significantFeedQuery.refetch();
+		if (nearMeCoords) void nearMeQuery.refetch();
+	}, [allFeedQuery, significantFeedQuery, nearMeQuery, nearMeCoords]);
 
 	const canShowNearMe = nearMeCoords !== null;
 
@@ -140,6 +173,7 @@ export default function Home() {
 		nearMeRadiusKm: NEAR_ME_RADIUS_KM,
 		canShowNearMe,
 		nearMeCenter: listMode === "nearMe" ? nearMeCoords : null,
+		tabCounts,
 		showRings,
 		onSelect: handleSelect,
 		onRefresh: refetchActive,
@@ -176,20 +210,8 @@ export default function Home() {
 						onClick={() => setMobileSheetOpen(true)}
 					>
 						<ChevronUp className="size-4 shrink-0 opacity-90" aria-hidden />
-						<List className="size-4 shrink-0" aria-hidden />
-						<span>Earthquakes</span>
-						<span
-							className="text-primary-foreground/90 inline-flex items-baseline gap-px text-[11px] tabular-nums"
-							aria-hidden
-						>
-							<span>(</span>
-							<NumberFlow
-								locales="en-US"
-								format={{ maximumFractionDigits: 0, useGrouping: true }}
-								value={features.length}
-							/>
-							<span>)</span>
-						</span>
+						<Activity className="size-4 shrink-0" aria-hidden />
+						<span>Fissol</span>
 					</Button>
 
 					<Drawer
