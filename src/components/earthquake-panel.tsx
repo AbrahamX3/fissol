@@ -36,7 +36,10 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { haversineDistanceKm } from "@/lib/geo";
 import type { EarthquakeFeature } from "@/server/routers/earthquake";
+
+export type ListMode = "all" | "significant" | "nearMe";
 
 function getMagnitudeColor(mag: number | null): string {
 	if (mag === null)
@@ -75,10 +78,12 @@ function MagnitudeBadge({ mag }: { mag: number | null }) {
 const EarthquakeListItem = memo(function EarthquakeListItem({
 	feature,
 	isSelected,
+	distanceKm,
 	onPick,
 }: {
 	feature: EarthquakeFeature;
 	isSelected: boolean;
+	distanceKm?: number | null;
 	onPick: (id: string) => void;
 }) {
 	const handleClick = useCallback(() => {
@@ -120,11 +125,23 @@ const EarthquakeListItem = memo(function EarthquakeListItem({
 								<span className="whitespace-nowrap">
 									{getMagnitudeLabel(props.mag)}
 								</span>
+								{distanceKm != null ? (
+									<>
+										<span className="text-muted-foreground/80" aria-hidden>
+											·
+										</span>
+										<span className="whitespace-nowrap tabular-nums">
+											{distanceKm < 100
+												? `${distanceKm.toFixed(1)} km away`
+												: `${Math.round(distanceKm)} km away`}
+										</span>
+									</>
+								) : null}
 								<span className="text-muted-foreground/80" aria-hidden>
 									·
 								</span>
 								<span className="whitespace-nowrap tabular-nums">
-									{depth.toFixed(1)} km
+									depth {depth.toFixed(1)} km
 								</span>
 							</div>
 						</div>
@@ -265,14 +282,18 @@ const timeRangeLabels: Record<TimeRange, string> = {
 
 function FeedControls({
 	timeRange,
-	significant,
+	listMode,
+	canShowNearMe,
+	nearMeRadiusKm,
 	onTimeRangeChange,
-	onSignificantChange,
+	onListModeChange,
 }: {
 	timeRange: TimeRange;
-	significant: boolean;
+	listMode: ListMode;
+	canShowNearMe: boolean;
+	nearMeRadiusKm: number;
 	onTimeRangeChange: (v: TimeRange) => void;
-	onSignificantChange: (v: boolean) => void;
+	onListModeChange: (v: ListMode) => void;
 }) {
 	const ranges: TimeRange[] = ["hour", "day", "week", "month"];
 
@@ -280,7 +301,11 @@ function FeedControls({
 		<div className="flex items-center gap-2 border-b px-3 py-2">
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
-					<Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs">
+					<Button
+						variant="outline"
+						size="sm"
+						className="h-7 shrink-0 gap-1.5 text-xs"
+					>
 						{timeRangeLabels[timeRange]}
 						<ChevronDown className="size-3.5" />
 					</Button>
@@ -293,27 +318,43 @@ function FeedControls({
 							className="text-xs"
 						>
 							{timeRangeLabels[r]}
-							{r === timeRange && <CheckIcon className="ml-auto size-3.5" />}
+							{r === timeRange && (
+								<CheckIcon className="ml-auto size-3.5" />
+							)}
 						</DropdownMenuItem>
 					))}
 				</DropdownMenuContent>
 			</DropdownMenu>
 
-			<div className="bg-muted ml-auto flex rounded-sm p-0.5">
+			<div className="bg-muted flex min-w-0 flex-1 rounded-sm p-0.5">
 				<button
 					type="button"
-					onClick={() => onSignificantChange(false)}
-					className={`rounded-sm px-2.5 py-1 text-[11px] font-medium transition-colors ${!significant ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+					onClick={() => onListModeChange("all")}
+					className={`min-w-0 flex-1 rounded-sm px-1.5 py-1 text-[10px] font-medium transition-colors sm:px-2 sm:text-[11px] ${listMode === "all" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
 				>
 					All
 				</button>
 				<button
 					type="button"
-					onClick={() => onSignificantChange(true)}
-					className={`rounded-sm px-2.5 py-1 text-[11px] font-medium transition-colors ${significant ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+					onClick={() => onListModeChange("significant")}
+					className={`min-w-0 flex-1 rounded-sm px-1.5 py-1 text-[10px] font-medium transition-colors sm:px-2 sm:text-[11px] ${listMode === "significant" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
 				>
 					Significant
 				</button>
+				{canShowNearMe ? (
+					<button
+						type="button"
+						onClick={() => onListModeChange("nearMe")}
+						title={
+							listMode === "nearMe"
+								? `Within about ${nearMeRadiusKm} km`
+								: undefined
+						}
+						className={`min-w-0 flex-1 rounded-sm px-1.5 py-1 text-[10px] font-medium transition-colors sm:px-2 sm:text-[11px] ${listMode === "nearMe" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+					>
+						Near me
+					</button>
+				) : null}
 			</div>
 		</div>
 	);
@@ -324,24 +365,32 @@ export function EarthquakePanel({
 	selectedId,
 	isRefetching,
 	timeRange,
-	significant,
-	showRings,
+	listMode,
+	nearMeRadiusKm,
+	canShowNearMe,
+	nearMeCenter,
 	onSelect,
 	onRefresh,
 	onTimeRangeChange,
-	onSignificantChange,
+	onListModeChange,
 	onShowRingsChange,
+	showRings,
 }: {
 	features: EarthquakeFeature[];
 	selectedId: string | null;
 	isRefetching: boolean;
 	timeRange: TimeRange;
-	significant: boolean;
+	listMode: ListMode;
+	/** Radius used for Near me USGS query (shown in toolbar). */
+	nearMeRadiusKm: number;
+	canShowNearMe: boolean;
+	/** Distance sort + list row badges when Near me tab is selected */
+	nearMeCenter: { lat: number; lng: number } | null;
 	showRings: boolean;
 	onSelect: (id: string | null) => void;
 	onRefresh: () => void;
 	onTimeRangeChange: (v: TimeRange) => void;
-	onSignificantChange: (v: boolean) => void;
+	onListModeChange: (v: ListMode) => void;
 	onShowRingsChange: (v: boolean) => void;
 }) {
 	const featureById = useMemo(() => {
@@ -354,12 +403,31 @@ export function EarthquakePanel({
 		selectedId !== null ? (featureById.get(selectedId) ?? null) : null;
 
 	const sortedFeatures = useMemo(() => {
-		return [...features].sort((a, b) => {
-			const aTime = a.properties.time ?? 0;
-			const bTime = b.properties.time ?? 0;
-			return bTime - aTime;
-		});
-	}, [features]);
+		const list = [...features];
+		if (listMode === "nearMe" && nearMeCenter) {
+			return list.sort((a, b) => {
+				const [alng, alat] = a.geometry.coordinates;
+				const [blng, blat] = b.geometry.coordinates;
+				const da = haversineDistanceKm(
+					nearMeCenter.lat,
+					nearMeCenter.lng,
+					alat,
+					alng,
+				);
+				const db = haversineDistanceKm(
+					nearMeCenter.lat,
+					nearMeCenter.lng,
+					blat,
+					blng,
+				);
+				if (Math.abs(da - db) > 1e-6) return da - db;
+				return (b.properties.time ?? 0) - (a.properties.time ?? 0);
+			});
+		}
+		return list.sort(
+			(a, b) => (b.properties.time ?? 0) - (a.properties.time ?? 0),
+		);
+	}, [features, listMode, nearMeCenter]);
 
 	const pickEarthquake = useCallback((id: string) => onSelect(id), [onSelect]);
 
@@ -418,21 +486,36 @@ export function EarthquakePanel({
 						<div className="flex h-full min-h-0 flex-col overflow-hidden">
 							<FeedControls
 								timeRange={timeRange}
-								significant={significant}
+								listMode={listMode}
+								canShowNearMe={canShowNearMe}
+								nearMeRadiusKm={nearMeRadiusKm}
 								onTimeRangeChange={onTimeRangeChange}
-								onSignificantChange={onSignificantChange}
+								onListModeChange={onListModeChange}
 							/>
 							<div className="min-h-0 flex-1 overflow-hidden">
 								{sortedFeatures.length > 0 ? (
 									<VList className="h-full" data={sortedFeatures} itemSize={72}>
-										{(feature) => (
-											<EarthquakeListItem
-												key={feature.id}
-												feature={feature}
-												isSelected={selectedId === feature.id}
-												onPick={pickEarthquake}
-											/>
-										)}
+										{(feature) => {
+											const [lng, lat] = feature.geometry.coordinates;
+											const distanceKm =
+												listMode === "nearMe" && nearMeCenter
+													? haversineDistanceKm(
+															nearMeCenter.lat,
+															nearMeCenter.lng,
+															lat,
+															lng,
+														)
+													: null;
+											return (
+												<EarthquakeListItem
+													key={feature.id}
+													feature={feature}
+													isSelected={selectedId === feature.id}
+													distanceKm={distanceKm}
+													onPick={pickEarthquake}
+												/>
+											);
+										}}
 									</VList>
 								) : (
 									<div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
@@ -440,10 +523,17 @@ export function EarthquakePanel({
 										<p className="text-muted-foreground text-sm">
 											No earthquakes found
 										</p>
-										{significant && (
+										{listMode === "significant" && (
 											<p className="text-muted-foreground max-w-[200px] text-xs">
 												Significant earthquakes are rare. Try a longer time
 												range.
+											</p>
+										)}
+										{listMode === "nearMe" && canShowNearMe && (
+											<p className="text-muted-foreground max-w-[220px] text-xs">
+												No events in the last {timeRangeLabels[timeRange]}{" "}
+												within about {nearMeRadiusKm}&nbsp;km. Try a longer
+												time range or move the map and use locate again.
 											</p>
 										)}
 									</div>

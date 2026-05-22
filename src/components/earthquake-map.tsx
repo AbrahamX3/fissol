@@ -283,7 +283,14 @@ function ReachRings({
 		} catch {
 			// Map or style not ready, or instance was removed mid-update.
 		}
-	}, [map, allRingsGeoJSON, selectedRingsGeoJSON, selectedId, showRings, sourceId]);
+	}, [
+		map,
+		allRingsGeoJSON,
+		selectedRingsGeoJSON,
+		selectedId,
+		showRings,
+		sourceId,
+	]);
 
 	return null;
 }
@@ -317,7 +324,7 @@ function MapEventHandler({
 		const feature = featureById.get(selectedId);
 		if (!feature) return;
 		const [lng, lat] = feature.geometry.coordinates;
-		map.flyTo({ center: [lng, lat], zoom: 14, duration: 1000 });
+		map.flyTo({ center: [lng, lat], zoom: 10, duration: 1000 });
 	}, [map, selectedId, featureById]);
 
 	return null;
@@ -328,12 +335,15 @@ export function EarthquakeMap({
 	selectedId,
 	showRings,
 	onSelect,
+	onUserLocated,
 	onOpenEarthquakePanel,
 }: {
 	features: EarthquakeFeature[];
 	selectedId: string | null;
 	showRings: boolean;
 	onSelect: (id: string | null) => void;
+	/** Called when the user taps locate; re-runs geolocation each time. */
+	onUserLocated?: (coords: { longitude: number; latitude: number }) => void;
 	/** When set (e.g. on narrow layouts), the count chip opens the list/drawer. */
 	onOpenEarthquakePanel?: () => void;
 }) {
@@ -390,7 +400,8 @@ export function EarthquakeMap({
 					position="bottom-right"
 					showZoom
 					showCompass
-					showLocate={false}
+					showLocate
+					onLocate={onUserLocated}
 					showFullscreen
 				/>
 			</Map>

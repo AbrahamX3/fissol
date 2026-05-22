@@ -43,16 +43,22 @@ const usgsFeatureSchema = z.object({
 	id: z.string(),
 });
 
+const usgsMetadataSchema = z.object({
+	generated: z.number(),
+	url: z.string(),
+	title: z.string(),
+	api: z.string(),
+	status: z.number(),
+	/** Present on summary feeds */
+	count: z.number().optional(),
+	/** Present on FDSN query responses */
+	limit: z.number().optional(),
+	offset: z.number().optional(),
+});
+
 const usgsResponseSchema = z.object({
 	type: z.literal("FeatureCollection"),
-	metadata: z.object({
-		generated: z.number(),
-		url: z.string(),
-		title: z.string(),
-		api: z.string(),
-		count: z.number(),
-		status: z.number(),
-	}),
+	metadata: usgsMetadataSchema,
 	features: z.array(usgsFeatureSchema),
 });
 
@@ -80,13 +86,38 @@ export const earthquakeRouter = {
 
 	query: publicProcedure
 		.input(
-			z.object({
-				starttime: z.string().optional(),
-				endtime: z.string().optional(),
-				minmagnitude: z.number().optional(),
-				maxmagnitude: z.number().optional(),
-				limit: z.number().max(20000).optional(),
-			}),
+			z
+				.object({
+					starttime: z.string().optional(),
+					endtime: z.string().optional(),
+					minmagnitude: z.number().optional(),
+					maxmagnitude: z.number().optional(),
+					limit: z.number().max(20000).optional(),
+					/** Center latitude for a radius search (USGS FDSN). */
+					latitude: z.number().min(-90).max(90).optional(),
+					/** Center longitude for a radius search. */
+					longitude: z.number().min(-180).max(180).optional(),
+					/** Max distance from the center in km (used with latitude/longitude). */
+					maxradiuskm: z.number().positive().max(20000).optional(),
+				})
+				.superRefine((val, ctx) => {
+					const hasLat = val.latitude !== undefined;
+					const hasLon = val.longitude !== undefined;
+					if (hasLat !== hasLon) {
+						ctx.addIssue({
+							code: "custom",
+							message: "latitude and longitude must be provided together",
+							path: hasLat ? ["longitude"] : ["latitude"],
+						});
+					}
+					if ((hasLat || hasLon) && val.maxradiuskm === undefined) {
+						ctx.addIssue({
+							code: "custom",
+							message: "maxradiuskm is required with latitude/longitude",
+							path: ["maxradiuskm"],
+						});
+					}
+				}),
 		)
 		.handler(async ({ input }) => {
 			const params = new URLSearchParams({ format: "geojson" });
@@ -97,6 +128,12 @@ export const earthquakeRouter = {
 			if (input.maxmagnitude !== undefined)
 				params.set("maxmagnitude", input.maxmagnitude.toString());
 			if (input.limit) params.set("limit", input.limit.toString());
+			if (input.latitude !== undefined)
+				params.set("latitude", input.latitude.toString());
+			if (input.longitude !== undefined)
+				params.set("longitude", input.longitude.toString());
+			if (input.maxradiuskm !== undefined)
+				params.set("maxradiuskm", input.maxradiuskm.toString());
 
 			const res = await fetch(
 				`https://earthquake.usgs.gov/fdsnws/event/1/query?${params}`,

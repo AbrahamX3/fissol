@@ -1,12 +1,12 @@
 "use client";
 
+import NumberFlow from "@number-flow/react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronUp, List } from "lucide-react";
-import NumberFlow from "@number-flow/react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { EarthquakeMap } from "@/components/earthquake-map";
-import { EarthquakePanel } from "@/components/earthquake-panel";
+import { EarthquakePanel, type ListMode } from "@/components/earthquake-panel";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import {
@@ -15,21 +15,77 @@ import {
 	ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { useIsMobile } from "@/hooks/use-mobile";
+import {
+	readNearMeCoordsFromStorage,
+	writeNearMeCoordsToStorage,
+} from "@/lib/near-me-coords";
 import { cn } from "@/lib/utils";
+import type { FeedName } from "@/server/routers/earthquake";
 import { orpc } from "@/utils/orpc";
 
 export type TimeRange = "hour" | "day" | "week" | "month";
 
+const NEAR_ME_RADIUS_KM = 500;
+const NEAR_ME_QUERY_LIMIT = 5000;
+
+function startTimeISOForEarthquakeRange(timeRange: TimeRange): string {
+	const d = new Date();
+	if (timeRange === "hour") d.setHours(d.getHours() - 1);
+	else if (timeRange === "day") d.setDate(d.getDate() - 1);
+	else if (timeRange === "week") d.setDate(d.getDate() - 7);
+	else d.setMonth(d.getMonth() - 1);
+	return d.toISOString();
+}
+
 export default function Home() {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [timeRange, setTimeRange] = useState<TimeRange>("hour");
-	const [significant, setSignificant] = useState(false);
+	const [listMode, setListMode] = useState<ListMode>("all");
+	const [nearMeCoords, setNearMeCoords] = useState<{
+		lat: number;
+		lng: number;
+	} | null>(() => readNearMeCoordsFromStorage());
+
 	const [showRings, setShowRings] = useState(true);
 	const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
 
 	const isMobile = useIsMobile();
 
-	const feed = `${significant ? "significant" : "all"}_${timeRange}` as const;
+	const feed = useMemo((): FeedName => {
+		const prefix = listMode === "significant" ? "significant" : "all";
+		return `${prefix}_${timeRange}`;
+	}, [listMode, timeRange]);
+
+	const nearMeStartISO = useMemo(
+		() => startTimeISOForEarthquakeRange(timeRange),
+		[timeRange],
+	);
+
+	const feedQuery = useQuery({
+		...orpc.earthquake.getFeed.queryOptions({ input: { feed } }),
+		enabled: listMode !== "nearMe",
+		placeholderData: keepPreviousData,
+	});
+
+	const nearMeQuery = useQuery({
+		...orpc.earthquake.query.queryOptions({
+			input: {
+				starttime: nearMeStartISO,
+				latitude: nearMeCoords?.lat ?? 0,
+				longitude: nearMeCoords?.lng ?? 0,
+				maxradiuskm: NEAR_ME_RADIUS_KM,
+				limit: NEAR_ME_QUERY_LIMIT,
+			},
+		}),
+		enabled: listMode === "nearMe" && nearMeCoords !== null,
+		placeholderData: keepPreviousData,
+	});
+
+	useEffect(() => {
+		if (listMode === "nearMe" && nearMeCoords === null) {
+			setListMode("all");
+		}
+	}, [listMode, nearMeCoords]);
 
 	const handleSelect = useCallback(
 		(id: string | null) => {
@@ -41,25 +97,54 @@ export default function Home() {
 		[isMobile],
 	);
 
-	const { data, isLoading, isFetching, refetch } = useQuery({
-		...orpc.earthquake.getFeed.queryOptions({ input: { feed } }),
-		placeholderData: keepPreviousData,
-	});
+	const handleUserLocated = useCallback(
+		({ latitude, longitude }: { latitude: number; longitude: number }) => {
+			const next = { lat: latitude, lng: longitude };
+			setNearMeCoords(next);
+			writeNearMeCoordsToStorage(next);
+			setListMode("nearMe");
+		},
+		[],
+	);
 
-	const features = data?.features ?? [];
-	const isRefetching = isFetching && !isLoading;
+	const handleListModeChange = useCallback((mode: ListMode) => {
+		setListMode(mode);
+	}, []);
+
+	const features =
+		listMode === "nearMe"
+			? (nearMeQuery.data?.features ?? [])
+			: (feedQuery.data?.features ?? []);
+
+	const isLoading =
+		listMode === "nearMe" ? nearMeQuery.isLoading : feedQuery.isLoading;
+
+	const isRefetching =
+		listMode === "nearMe"
+			? nearMeQuery.isFetching && !nearMeQuery.isLoading
+			: feedQuery.isFetching && !feedQuery.isLoading;
+
+	const refetchActive = useCallback(() => {
+		if (listMode === "nearMe") void nearMeQuery.refetch();
+		else void feedQuery.refetch();
+	}, [listMode, nearMeQuery, feedQuery]);
+
+	const canShowNearMe = nearMeCoords !== null;
 
 	const panelProps = {
 		features,
 		selectedId,
 		isRefetching,
 		timeRange,
-		significant,
+		listMode,
+		nearMeRadiusKm: NEAR_ME_RADIUS_KM,
+		canShowNearMe,
+		nearMeCenter: listMode === "nearMe" ? nearMeCoords : null,
 		showRings,
 		onSelect: handleSelect,
-		onRefresh: refetch,
+		onRefresh: refetchActive,
 		onTimeRangeChange: setTimeRange,
-		onSignificantChange: setSignificant,
+		onListModeChange: handleListModeChange,
 		onShowRingsChange: setShowRings,
 	};
 
@@ -72,6 +157,7 @@ export default function Home() {
 						selectedId={selectedId}
 						showRings={showRings}
 						onSelect={handleSelect}
+						onUserLocated={handleUserLocated}
 						onOpenEarthquakePanel={() => setMobileSheetOpen(true)}
 					/>
 
@@ -136,6 +222,7 @@ export default function Home() {
 							selectedId={selectedId}
 							showRings={showRings}
 							onSelect={handleSelect}
+							onUserLocated={handleUserLocated}
 						/>
 					</ResizablePanel>
 					<ResizableHandle withHandle className="w-2" />
