@@ -1,6 +1,8 @@
 # fissol
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines Next.js, Self, ORPC, and more.
+This project was created with
+[Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a
+modern TypeScript stack that combines Next.js, Self, ORPC, and more.
 
 ## Features
 
@@ -27,7 +29,8 @@ Then, run the development server:
 pnpm run dev
 ```
 
-Open [http://localhost:3001](http://localhost:3001) in your browser to see the fullstack application.
+Open [http://localhost:3001](http://localhost:3001) in your browser to see the
+fullstack application.
 
 ## UI Customization
 
@@ -35,7 +38,8 @@ React web apps in this stack share shadcn/ui primitives through `packages/ui`.
 
 - Change design tokens and global styles in `packages/ui/src/styles/globals.css`
 - Update shared primitives in `packages/ui/src/components/*`
-- Adjust shadcn aliases or style config in `packages/ui/components.json` and `apps/web/components.json`
+- Adjust shadcn aliases or style config in `packages/ui/components.json` and
+  `apps/web/components.json`
 
 ### Add more shared components
 
@@ -53,7 +57,8 @@ import { Button } from "@fissol/ui/components/button";
 
 ### Add app-specific blocks
 
-If you want to add app-specific blocks instead of shared primitives, run the shadcn CLI from `apps/web`.
+If you want to add app-specific blocks instead of shared primitives, run the
+shadcn CLI from `apps/web`.
 
 ## Git Hooks and Formatting
 

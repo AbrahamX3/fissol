@@ -1,11 +1,25 @@
 {
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "unicorn", "oxc"],
-  "categories": {
-    "correctness": "error"
-  },
-  "rules": {},
-  "env": {
-    "builtin": true
-  }
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	"plugins": [
+		"react",
+		"react-perf",
+		"nextjs",
+		"import",
+		"typescript",
+		"oxc",
+		"unicorn"
+	],
+	"rules": {
+		"react-hooks/rules-of-hooks": "error",
+		"react-hooks/exhaustive-deps": "warn"
+	},
+	"ignorePatterns": [
+		"node_modules",
+		".next",
+		"dist",
+		"build",
+		"*.config.js",
+		"*.config.ts",
+		"*.config.mjs"
+	]
 }
