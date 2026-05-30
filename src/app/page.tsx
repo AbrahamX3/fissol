@@ -19,11 +19,15 @@ import {
 } from "@/components/ui/resizable";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
+	getFeedQueryOptions,
+	getQueryQueryOptions,
+	type SortOrder,
+} from "@/lib/earthquake";
+import {
 	readNearMeCoordsFromStorage,
 	writeNearMeCoordsToStorage,
 } from "@/lib/near-me-coords";
 import { cn } from "@/lib/utils";
-import { orpc } from "@/utils/orpc";
 
 export type TimeRange = "hour" | "day" | "week" | "month";
 
@@ -48,6 +52,7 @@ export default function Home() {
 		lng: number;
 	} | null>(() => readNearMeCoordsFromStorage());
 
+	const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
 	const [showRings, setShowRings] = useState(true);
 	const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
 
@@ -62,26 +67,23 @@ export default function Home() {
 	);
 
 	const allFeedQuery = useQuery({
-		...orpc.earthquake.getFeed.queryOptions({ input: { feed: allFeed } }),
+		...getFeedQueryOptions(allFeed),
 		placeholderData: keepPreviousData,
 	});
 
 	const significantFeedQuery = useQuery({
-		...orpc.earthquake.getFeed.queryOptions({
-			input: { feed: significantFeed },
-		}),
+		...getFeedQueryOptions(significantFeed),
 		placeholderData: keepPreviousData,
 	});
 
 	const nearMeQuery = useQuery({
-		...orpc.earthquake.query.queryOptions({
-			input: {
-				starttime: nearMeStartISO,
-				latitude: nearMeCoords?.lat ?? 0,
-				longitude: nearMeCoords?.lng ?? 0,
-				maxradiuskm: NEAR_ME_RADIUS_KM,
-				limit: NEAR_ME_QUERY_LIMIT,
-			},
+		...getQueryQueryOptions({
+			starttime: nearMeStartISO,
+			latitude: nearMeCoords?.lat ?? 0,
+			longitude: nearMeCoords?.lng ?? 0,
+			maxradiuskm: NEAR_ME_RADIUS_KM,
+			limit: NEAR_ME_QUERY_LIMIT,
+			orderby: sortOrder === "newest" ? "time" : "time-asc",
 		}),
 		enabled: nearMeCoords !== null,
 		placeholderData: keepPreviousData,
@@ -169,6 +171,7 @@ export default function Home() {
 		selectedId,
 		isRefetching,
 		timeRange,
+		sortOrder,
 		listMode,
 		nearMeRadiusKm: NEAR_ME_RADIUS_KM,
 		canShowNearMe,
@@ -179,6 +182,7 @@ export default function Home() {
 		onRefresh: refetchActive,
 		onTimeRangeChange: setTimeRange,
 		onListModeChange: handleListModeChange,
+		onSortOrderChange: setSortOrder,
 		onShowRingsChange: setShowRings,
 	};
 

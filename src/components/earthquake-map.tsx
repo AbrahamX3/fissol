@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef } from "react";
 
 import { Map, MapClusterLayer, MapControls, useMap } from "@/components/ui/map";
 import { cn } from "@/lib/utils";
-import type { EarthquakeFeature } from "@/server/routers/earthquake";
+import type { EarthquakeFeature } from "@/lib/earthquake";
 
 function getMagnitudeReachKm(mag: number | null): number {
 	if (mag === null) return 5;

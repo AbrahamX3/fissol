@@ -38,7 +38,8 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { haversineDistanceKm } from "@/lib/geo";
-import type { EarthquakeFeature } from "@/server/routers/earthquake";
+import { sortFeaturesByTime, type SortOrder } from "@/lib/earthquake";
+import type { EarthquakeFeature } from "@/lib/earthquake";
 
 export type ListMode = "all" | "significant" | "nearMe";
 
@@ -338,21 +339,30 @@ function ListModeTab({
 	);
 }
 
+const sortOrderLabels: Record<SortOrder, string> = {
+	newest: "Newest",
+	oldest: "Oldest",
+};
+
 function FeedControls({
 	timeRange,
+	sortOrder,
 	listMode,
 	canShowNearMe,
 	nearMeRadiusKm,
 	tabCounts,
 	onTimeRangeChange,
+	onSortOrderChange,
 	onListModeChange,
 }: {
 	timeRange: TimeRange;
+	sortOrder: SortOrder;
 	listMode: ListMode;
 	canShowNearMe: boolean;
 	nearMeRadiusKm: number;
 	tabCounts: TabCounts;
 	onTimeRangeChange: (v: TimeRange) => void;
+	onSortOrderChange: (v: SortOrder) => void;
 	onListModeChange: (v: ListMode) => void;
 }) {
 	const ranges: TimeRange[] = ["hour", "day", "week", "month"];
@@ -381,6 +391,35 @@ function FeedControls({
 							{r === timeRange && <CheckIcon className="ml-auto size-3.5" />}
 						</DropdownMenuItem>
 					))}
+				</DropdownMenuContent>
+			</DropdownMenu>
+
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<Button
+						variant="outline"
+						size="sm"
+						className="h-7 shrink-0 gap-1 text-xs"
+					>
+						{sortOrderLabels[sortOrder]}
+						<ChevronDown className="size-3.5" />
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="start">
+					<DropdownMenuItem
+						onClick={() => onSortOrderChange("newest")}
+						className="text-xs"
+					>
+						Newest
+						{sortOrder === "newest" && <CheckIcon className="ml-auto size-3.5" />}
+					</DropdownMenuItem>
+					<DropdownMenuItem
+						onClick={() => onSortOrderChange("oldest")}
+						className="text-xs"
+					>
+						Oldest
+						{sortOrder === "oldest" && <CheckIcon className="ml-auto size-3.5" />}
+					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>
 
@@ -420,6 +459,7 @@ export function EarthquakePanel({
 	selectedId,
 	isRefetching,
 	timeRange,
+	sortOrder,
 	listMode,
 	nearMeRadiusKm,
 	canShowNearMe,
@@ -428,6 +468,7 @@ export function EarthquakePanel({
 	onSelect,
 	onRefresh,
 	onTimeRangeChange,
+	onSortOrderChange,
 	onListModeChange,
 	onShowRingsChange,
 	showRings,
@@ -436,6 +477,7 @@ export function EarthquakePanel({
 	selectedId: string | null;
 	isRefetching: boolean;
 	timeRange: TimeRange;
+	sortOrder: SortOrder;
 	listMode: ListMode;
 	/** Radius used for Near me USGS query (shown in toolbar). */
 	nearMeRadiusKm: number;
@@ -447,6 +489,7 @@ export function EarthquakePanel({
 	onSelect: (id: string | null) => void;
 	onRefresh: () => void;
 	onTimeRangeChange: (v: TimeRange) => void;
+	onSortOrderChange: (v: SortOrder) => void;
 	onListModeChange: (v: ListMode) => void;
 	onShowRingsChange: (v: boolean) => void;
 }) {
@@ -460,31 +503,8 @@ export function EarthquakePanel({
 		selectedId !== null ? (featureById.get(selectedId) ?? null) : null;
 
 	const sortedFeatures = useMemo(() => {
-		const list = [...features];
-		if (listMode === "nearMe" && nearMeCenter) {
-			return list.sort((a, b) => {
-				const [alng, alat] = a.geometry.coordinates;
-				const [blng, blat] = b.geometry.coordinates;
-				const da = haversineDistanceKm(
-					nearMeCenter.lat,
-					nearMeCenter.lng,
-					alat,
-					alng,
-				);
-				const db = haversineDistanceKm(
-					nearMeCenter.lat,
-					nearMeCenter.lng,
-					blat,
-					blng,
-				);
-				if (Math.abs(da - db) > 1e-6) return da - db;
-				return (b.properties.time ?? 0) - (a.properties.time ?? 0);
-			});
-		}
-		return list.sort(
-			(a, b) => (b.properties.time ?? 0) - (a.properties.time ?? 0),
-		);
-	}, [features, listMode, nearMeCenter]);
+		return sortFeaturesByTime(features, sortOrder);
+	}, [features, sortOrder]);
 
 	const pickEarthquake = useCallback((id: string) => onSelect(id), [onSelect]);
 
@@ -549,11 +569,13 @@ export function EarthquakePanel({
 						<div className="flex h-full min-h-0 flex-col overflow-hidden">
 							<FeedControls
 								timeRange={timeRange}
+								sortOrder={sortOrder}
 								listMode={listMode}
 								canShowNearMe={canShowNearMe}
 								nearMeRadiusKm={nearMeRadiusKm}
 								tabCounts={tabCounts}
 								onTimeRangeChange={onTimeRangeChange}
+								onSortOrderChange={onSortOrderChange}
 								onListModeChange={onListModeChange}
 							/>
 							<div className="min-h-0 flex-1 overflow-hidden">
