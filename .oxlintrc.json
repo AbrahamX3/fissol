@@ -18,6 +18,7 @@
 		".next",
 		"dist",
 		"build",
+		"public",
 		"*.config.js",
 		"*.config.ts",
 		"*.config.mjs"

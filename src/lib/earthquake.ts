@@ -1,6 +1,8 @@
 import { queryOptions } from "@tanstack/react-query";
 import { z } from "zod";
 
+import { haversineDistanceKm } from "@/lib/geo";
+
 const usgsPropertiesSchema = z.object({
 	mag: z.number().nullable(),
 	place: z.string().nullable(),
@@ -70,7 +72,12 @@ const feedSchema = z.enum([
 	"significant_month",
 ]);
 
-const orderbySchema = z.enum(["time", "time-asc"]);
+const orderbySchema = z.enum([
+	"time",
+	"time-asc",
+	"magnitude",
+	"magnitude-asc",
+]);
 
 const queryInputSchema = z
 	.object({
@@ -108,7 +115,15 @@ export type EarthquakeFeature = z.infer<typeof usgsFeatureSchema>;
 export type EarthquakeProperties = z.infer<typeof usgsPropertiesSchema>;
 export type FeedName = z.infer<typeof feedSchema>;
 export type QueryInput = z.input<typeof queryInputSchema>;
-export type SortOrder = "newest" | "oldest";
+export type SortOrder =
+	| "newest"
+	| "oldest"
+	| "biggest"
+	| "smallest"
+	| "nearest"
+	| "furthest";
+
+export type SortOrigin = { lat: number; lng: number } | null;
 
 export { feedSchema, queryInputSchema };
 
@@ -163,12 +178,41 @@ export function getQueryQueryOptions(input: QueryInput) {
 	});
 }
 
-export function sortFeaturesByTime(
+export function sortFeatures(
 	features: EarthquakeFeature[],
 	order: SortOrder,
+	origin: SortOrigin = null,
 ): EarthquakeFeature[] {
+	const byTimeDesc = (a: EarthquakeFeature, b: EarthquakeFeature) =>
+		(b.properties.time ?? 0) - (a.properties.time ?? 0);
+
 	return [...features].sort((a, b) => {
-		const diff = (b.properties.time ?? 0) - (a.properties.time ?? 0);
-		return order === "newest" ? diff : -diff;
+		switch (order) {
+			case "newest":
+				return byTimeDesc(a, b);
+			case "oldest":
+				return -byTimeDesc(a, b);
+			case "biggest": {
+				const diff =
+					(b.properties.mag ?? -Infinity) - (a.properties.mag ?? -Infinity);
+				return diff !== 0 ? diff : byTimeDesc(a, b);
+			}
+			case "smallest": {
+				const diff =
+					(a.properties.mag ?? Infinity) - (b.properties.mag ?? Infinity);
+				return diff !== 0 ? diff : byTimeDesc(a, b);
+			}
+			case "nearest":
+			case "furthest": {
+				if (!origin) return byTimeDesc(a, b);
+				const [aLng, aLat] = a.geometry.coordinates;
+				const [bLng, bLat] = b.geometry.coordinates;
+				const diff =
+					haversineDistanceKm(origin.lat, origin.lng, aLat, aLng) -
+					haversineDistanceKm(origin.lat, origin.lng, bLat, bLng);
+				const signed = order === "nearest" ? diff : -diff;
+				return signed !== 0 ? signed : byTimeDesc(a, b);
+			}
+		}
 	});
 }

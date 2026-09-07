@@ -16,6 +16,9 @@
 /out/
 /build/
 /dist/
+
+# Generated maplibre-gl worker files (scripts/copy-maplibre-worker.mjs)
+/public/maplibre/
 .vinxi
 .output
 .react-router/

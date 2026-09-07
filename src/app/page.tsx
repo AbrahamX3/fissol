@@ -2,7 +2,7 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Activity, ChevronUp } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { EarthquakeMap } from "@/components/earthquake-map";
 import {
@@ -23,10 +23,7 @@ import {
 	getQueryQueryOptions,
 	type SortOrder,
 } from "@/lib/earthquake";
-import {
-	readNearMeCoordsFromStorage,
-	writeNearMeCoordsToStorage,
-} from "@/lib/near-me-coords";
+import { useNearMeCoords } from "@/lib/near-me-coords";
 import { cn } from "@/lib/utils";
 
 export type TimeRange = "hour" | "day" | "week" | "month";
@@ -47,10 +44,7 @@ export default function Home() {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [timeRange, setTimeRange] = useState<TimeRange>("hour");
 	const [listMode, setListMode] = useState<ListMode>("all");
-	const [nearMeCoords, setNearMeCoords] = useState<{
-		lat: number;
-		lng: number;
-	} | null>(() => readNearMeCoordsFromStorage());
+	const [nearMeCoords, setNearMeCoords] = useNearMeCoords();
 
 	const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
 	const [showRings, setShowRings] = useState(true);
@@ -83,17 +77,22 @@ export default function Home() {
 			longitude: nearMeCoords?.lng ?? 0,
 			maxradiuskm: NEAR_ME_RADIUS_KM,
 			limit: NEAR_ME_QUERY_LIMIT,
-			orderby: sortOrder === "newest" ? "time" : "time-asc",
+			orderby:
+				sortOrder === "newest"
+					? "time"
+					: sortOrder === "oldest"
+						? "time-asc"
+						: sortOrder === "biggest"
+							? "magnitude"
+							: "magnitude-asc",
 		}),
 		enabled: nearMeCoords !== null,
 		placeholderData: keepPreviousData,
 	});
 
-	useEffect(() => {
-		if (listMode === "nearMe" && nearMeCoords === null) {
-			setListMode("all");
-		}
-	}, [listMode, nearMeCoords]);
+	// "nearMe" falls back to "all" until the user's location is available.
+	const effectiveListMode: ListMode =
+		listMode === "nearMe" && nearMeCoords === null ? "all" : listMode;
 
 	const handleSelect = useCallback(
 		(id: string | null) => {
@@ -107,12 +106,10 @@ export default function Home() {
 
 	const handleUserLocated = useCallback(
 		({ latitude, longitude }: { latitude: number; longitude: number }) => {
-			const next = { lat: latitude, lng: longitude };
-			setNearMeCoords(next);
-			writeNearMeCoordsToStorage(next);
+			setNearMeCoords({ lat: latitude, lng: longitude });
 			setListMode("nearMe");
 		},
-		[],
+		[setNearMeCoords],
 	);
 
 	const handleListModeChange = useCallback((mode: ListMode) => {
@@ -120,12 +117,12 @@ export default function Home() {
 	}, []);
 
 	const features = useMemo(() => {
-		if (listMode === "nearMe") return nearMeQuery.data?.features ?? [];
-		if (listMode === "significant")
+		if (effectiveListMode === "nearMe") return nearMeQuery.data?.features ?? [];
+		if (effectiveListMode === "significant")
 			return significantFeedQuery.data?.features ?? [];
 		return allFeedQuery.data?.features ?? [];
 	}, [
-		listMode,
+		effectiveListMode,
 		allFeedQuery.data?.features,
 		significantFeedQuery.data?.features,
 		nearMeQuery.data?.features,
@@ -145,16 +142,16 @@ export default function Home() {
 	]);
 
 	const isLoading =
-		listMode === "nearMe"
+		effectiveListMode === "nearMe"
 			? nearMeQuery.isLoading
-			: listMode === "significant"
+			: effectiveListMode === "significant"
 				? significantFeedQuery.isLoading
 				: allFeedQuery.isLoading;
 
 	const isRefetching =
-		listMode === "nearMe"
+		effectiveListMode === "nearMe"
 			? nearMeQuery.isFetching && !nearMeQuery.isLoading
-			: listMode === "significant"
+			: effectiveListMode === "significant"
 				? significantFeedQuery.isFetching && !significantFeedQuery.isLoading
 				: allFeedQuery.isFetching && !allFeedQuery.isLoading;
 
@@ -172,10 +169,12 @@ export default function Home() {
 		isRefetching,
 		timeRange,
 		sortOrder,
-		listMode,
+		listMode: effectiveListMode,
 		nearMeRadiusKm: NEAR_ME_RADIUS_KM,
 		canShowNearMe,
-		nearMeCenter: listMode === "nearMe" ? nearMeCoords : null,
+		// Always pass the user's location when known so distance sorts work
+		// on every tab; distance badges still only show in the Near me list.
+		nearMeCenter: nearMeCoords,
 		tabCounts,
 		showRings,
 		onSelect: handleSelect,

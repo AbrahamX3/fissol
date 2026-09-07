@@ -1,13 +1,20 @@
 "use client";
 
 import NumberFlow from "@number-flow/react";
+import type * as GeoJSON from "geojson";
 import { Activity } from "lucide-react";
-import type { Map as MapLibreMap } from "maplibre-gl";
-import { useEffect, useMemo, useRef } from "react";
+import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
+import { useEffect, useId, useMemo } from "react";
 
-import { Map, MapClusterLayer, MapControls, useMap } from "@/components/ui/map";
-import { cn } from "@/lib/utils";
+import {
+	Map,
+	MapClusterLayer,
+	MapControls,
+	buildAgeFadeExpression,
+	useMap,
+} from "@/components/ui/map";
 import type { EarthquakeFeature } from "@/lib/earthquake";
+import { cn } from "@/lib/utils";
 
 function getMagnitudeReachKm(mag: number | null): number {
 	if (mag === null) return 5;
@@ -25,16 +32,28 @@ function createCirclePolygon(
 	radiusKm: number,
 	points = 64,
 ): GeoJSON.Polygon {
+	// Great-circle destination formula: accurate at large radii where the
+	// previous flat-earth approximation drifted badly.
 	const [lon, lat] = center;
-	const coords: [number, number][] = [];
 	const R = 6371;
+	const angular = radiusKm / R;
+	const latRad = (lat * Math.PI) / 180;
+	const lonRad = (lon * Math.PI) / 180;
+	const coords: [number, number][] = [];
 
 	for (let i = 0; i <= points; i++) {
 		const bearing = (i * 2 * Math.PI) / points;
-		const dLat = (radiusKm * Math.cos(bearing)) / R;
-		const dLon =
-			(radiusKm * Math.sin(bearing)) / (R * Math.cos((lat * Math.PI) / 180));
-		coords.push([lon + (dLon * 180) / Math.PI, lat + (dLat * 180) / Math.PI]);
+		const lat2 = Math.asin(
+			Math.sin(latRad) * Math.cos(angular) +
+				Math.cos(latRad) * Math.sin(angular) * Math.cos(bearing),
+		);
+		const lon2 =
+			lonRad +
+			Math.atan2(
+				Math.sin(bearing) * Math.sin(angular) * Math.cos(latRad),
+				Math.cos(angular) - Math.sin(latRad) * Math.sin(lat2),
+			);
+		coords.push([(lon2 * 180) / Math.PI, (lat2 * 180) / Math.PI]);
 	}
 
 	return {
@@ -57,6 +76,7 @@ function buildReachRingsGeoJSON(
 			properties: {
 				mag: f.properties.mag,
 				color: getMagnitudeColor(f.properties.mag),
+				time: f.properties.time,
 			},
 		})),
 	};
@@ -92,6 +112,9 @@ function buildGeoJSON(
 	};
 }
 
+/** Max number of reach rings drawn when nothing is selected. */
+const MAX_RING_FEATURES = 5;
+
 function ReachRings({
 	features,
 	selectedId,
@@ -102,134 +125,62 @@ function ReachRings({
 	showRings: boolean;
 }) {
 	const { map } = useMap();
+	const sourceId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
 
-	const allRingsGeoJSON = useMemo(
-		() => buildReachRingsGeoJSON(features),
-		[features],
-	);
-	const selectedRingsGeoJSON = useMemo(() => {
-		if (!selectedId) return null;
-		const feature = features.find((f) => f.id === selectedId);
-		return feature ? buildReachRingsGeoJSON([feature]) : null;
-	}, [features, selectedId]);
-
-	const sourceId = useRef(
-		`rings-${Math.random().toString(36).slice(2)}`,
-	).current;
-	const featuresRef = useRef(features);
-	featuresRef.current = features;
-	const selectedIdRef = useRef(selectedId);
-	selectedIdRef.current = selectedId;
-	const showRingsRef = useRef(showRings);
-	showRingsRef.current = showRings;
-	const allRingsGeoJSONRef = useRef(allRingsGeoJSON);
-	allRingsGeoJSONRef.current = allRingsGeoJSON;
-	const mountedRef = useRef(true);
+	// Rings only for the selected quake, or the strongest few — drawing one
+	// polygon per event turned the month feed into mud.
+	const ringsGeoJSON = useMemo(() => {
+		if (!showRings || features.length === 0) {
+			return { type: "FeatureCollection" as const, features: [] };
+		}
+		const selected =
+			selectedId !== null
+				? (features.find((f) => f.id === selectedId) ?? null)
+				: null;
+		const ringFeatures = selected
+			? [selected]
+			: [...features]
+					.sort(
+						(a, b) =>
+							(b.properties.mag ?? -Infinity) - (a.properties.mag ?? -Infinity),
+					)
+					.slice(0, MAX_RING_FEATURES);
+		return buildReachRingsGeoJSON(ringFeatures);
+	}, [features, selectedId, showRings]);
 
 	useEffect(() => {
-		mountedRef.current = true;
-
-		if (!map) {
-			return undefined;
-		}
-
+		if (!map) return undefined;
 		const mapInstance: MapLibreMap = map;
 
-		const updateVisibility = () => {
-			const m = mapInstance;
-			if (!m || !mountedRef.current) return;
-			try {
-				if (!showRingsRef.current) {
-					m.setLayoutProperty(`${sourceId}-fill`, "visibility", "none");
-					m.setLayoutProperty(`${sourceId}-stroke`, "visibility", "none");
-					return;
-				}
-
-				const source = m.getSource(sourceId) as
-					| maplibregl.GeoJSONSource
-					| undefined;
-				if (!source) return;
-
-				const sel = selectedIdRef.current;
-				const data = sel
-					? (() => {
-							const f = featuresRef.current.find((x) => x.id === sel);
-							return f
-								? buildReachRingsGeoJSON([f])
-								: allRingsGeoJSONRef.current;
-						})()
-					: allRingsGeoJSONRef.current;
-
-				source.setData(data);
-
-				m.setLayoutProperty(`${sourceId}-fill`, "visibility", "visible");
-				m.setLayoutProperty(`${sourceId}-stroke`, "visibility", "visible");
-			} catch {
-				// Style or map was torn down while updating rings.
-			}
-		};
-
 		const setup = () => {
-			const m = mapInstance;
-			if (!m || !mountedRef.current) return;
 			try {
-				if (m.getSource(sourceId)) return;
-
-				m.addSource(sourceId, {
+				if (mapInstance.getSource(sourceId)) return;
+				mapInstance.addSource(sourceId, {
 					type: "geojson",
-					data: allRingsGeoJSONRef.current,
+					data: ringsGeoJSON,
 				});
-
-				m.addLayer({
+				mapInstance.addLayer({
 					id: `${sourceId}-fill`,
 					type: "fill",
 					source: sourceId,
 					paint: {
-						"fill-color": [
-							"case",
-							[">=", ["get", "mag"], 7],
-							"#9333ea",
-							[">=", ["get", "mag"], 6],
-							"#ef4444",
-							[">=", ["get", "mag"], 5],
-							"#f97316",
-							[">=", ["get", "mag"], 4],
-							"#eab308",
-							[">=", ["get", "mag"], 3],
-							"#84cc16",
-							"#9ca3af",
-						],
-						"fill-opacity": 0.08,
+						"fill-color": ["get", "color"],
+						"fill-opacity": ["*", 0.08, buildAgeFadeExpression()],
 					},
 				});
-
-				m.addLayer({
+				mapInstance.addLayer({
 					id: `${sourceId}-stroke`,
 					type: "line",
 					source: sourceId,
 					paint: {
-						"line-color": [
-							"case",
-							[">=", ["get", "mag"], 7],
-							"#9333ea",
-							[">=", ["get", "mag"], 6],
-							"#ef4444",
-							[">=", ["get", "mag"], 5],
-							"#f97316",
-							[">=", ["get", "mag"], 4],
-							"#eab308",
-							[">=", ["get", "mag"], 3],
-							"#84cc16",
-							"#9ca3af",
-						],
+						"line-color": ["get", "color"],
 						"line-width": 1,
-						"line-opacity": 0.35,
+						"line-opacity": ["*", 0.4, buildAgeFadeExpression()],
 					},
 				});
-
-				updateVisibility();
-			} catch {
-				// Map destroyed before sources were fully added.
+			} catch (error) {
+				// Map destroyed before sources were fully added — expected during teardown.
+				console.debug("Reach rings setup skipped:", error);
 			}
 		};
 
@@ -240,7 +191,6 @@ function ReachRings({
 		}
 
 		return () => {
-			mountedRef.current = false;
 			try {
 				mapInstance.off("styledata", setup);
 				if (!mapInstance.getSource(sourceId)) return;
@@ -249,50 +199,176 @@ function ReachRings({
 				if (mapInstance.getLayer(`${sourceId}-stroke`))
 					mapInstance.removeLayer(`${sourceId}-stroke`);
 				mapInstance.removeSource(sourceId);
-			} catch {
+			} catch (error) {
 				// Listener or style teardown failed — map may already be gone.
+				console.debug("Reach rings cleanup skipped:", error);
 			}
 		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [map, sourceId]);
 
 	useEffect(() => {
 		if (!map) return;
 		try {
-			if (!map.getSource(sourceId)) return;
-
-			if (!showRings) {
-				map.setLayoutProperty(`${sourceId}-fill`, "visibility", "none");
-				map.setLayoutProperty(`${sourceId}-stroke`, "visibility", "none");
-				return;
-			}
-
-			const source = map.getSource(sourceId) as
-				| maplibregl.GeoJSONSource
-				| undefined;
+			const source = map.getSource(sourceId) as GeoJSONSource | undefined;
 			if (!source) return;
-
-			const data =
-				selectedId && selectedRingsGeoJSON
-					? selectedRingsGeoJSON
-					: allRingsGeoJSON;
-
-			source.setData(data);
-
-			map.setLayoutProperty(`${sourceId}-fill`, "visibility", "visible");
-			map.setLayoutProperty(`${sourceId}-stroke`, "visibility", "visible");
-		} catch {
+			source.setData(ringsGeoJSON);
+		} catch (error) {
 			// Map or style not ready, or instance was removed mid-update.
+			console.debug("Reach rings data update skipped:", error);
 		}
-	}, [
-		map,
-		allRingsGeoJSON,
-		selectedRingsGeoJSON,
-		selectedId,
-		showRings,
-		sourceId,
-	]);
+	}, [map, ringsGeoJSON, sourceId]);
 
 	return null;
+}
+
+/** White halo around the currently selected earthquake. */
+function SelectedHighlight({
+	features,
+	selectedId,
+}: {
+	features: EarthquakeFeature[];
+	selectedId: string | null;
+}) {
+	const { map } = useMap();
+	const sourceId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+
+	const highlightGeoJSON = useMemo<
+		GeoJSON.FeatureCollection<GeoJSON.Point>
+	>(() => {
+		const selected =
+			selectedId !== null
+				? (features.find((f) => f.id === selectedId) ?? null)
+				: null;
+		if (!selected) {
+			return { type: "FeatureCollection" as const, features: [] };
+		}
+		return {
+			type: "FeatureCollection" as const,
+			features: [
+				{
+					type: "Feature" as const,
+					geometry: {
+						type: "Point" as const,
+						coordinates: selected.geometry.coordinates,
+					},
+					properties: {},
+				},
+			],
+		};
+	}, [features, selectedId]);
+
+	useEffect(() => {
+		if (!map) return;
+		const mapInstance: MapLibreMap = map;
+		try {
+			mapInstance.addSource(sourceId, {
+				type: "geojson",
+				data: highlightGeoJSON,
+			});
+			mapInstance.addLayer({
+				id: `${sourceId}-ring`,
+				type: "circle",
+				source: sourceId,
+				paint: {
+					"circle-radius": 20,
+					"circle-color": "#ffffff",
+					"circle-opacity": 0,
+					"circle-stroke-width": 2,
+					"circle-stroke-color": "#ffffff",
+					"circle-stroke-opacity": 0.9,
+				},
+			});
+		} catch {
+			// Layer already added or style tearing down.
+		}
+		return () => {
+			try {
+				if (mapInstance.getLayer(`${sourceId}-ring`))
+					mapInstance.removeLayer(`${sourceId}-ring`);
+				if (mapInstance.getSource(sourceId)) mapInstance.removeSource(sourceId);
+			} catch {
+				// Map may already be gone.
+			}
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [map, sourceId]);
+
+	useEffect(() => {
+		if (!map) return;
+		try {
+			const source = map.getSource(sourceId) as GeoJSONSource | undefined;
+			if (!source) return;
+			source.setData(highlightGeoJSON);
+		} catch {
+			// Map or style not ready.
+		}
+	}, [map, highlightGeoJSON, sourceId]);
+
+	return null;
+}
+
+const MAGNITUDE_LEGEND: { label: string; color: string }[] = [
+	{ label: "M 7+", color: "#9333ea" },
+	{ label: "M 6–7", color: "#ef4444" },
+	{ label: "M 5–6", color: "#f97316" },
+	{ label: "M 4–5", color: "#eab308" },
+	{ label: "M 3–4", color: "#84cc16" },
+	{ label: "M 2–3", color: "#10b981" },
+	{ label: "M < 2", color: "#9ca3af" },
+];
+
+/** Count of features per magnitude band, aligned with MAGNITUDE_LEGEND order. */
+function getMagnitudeBandCounts(features: EarthquakeFeature[]): number[] {
+	const counts = Array.from<number>({ length: MAGNITUDE_LEGEND.length }).fill(
+		0,
+	);
+	for (const f of features) {
+		const mag = f.properties.mag;
+		if (mag === null || mag < 2) counts[6]++;
+		else if (mag < 3) counts[5]++;
+		else if (mag < 4) counts[4]++;
+		else if (mag < 5) counts[3]++;
+		else if (mag < 6) counts[2]++;
+		else if (mag < 7) counts[1]++;
+		else counts[0]++;
+	}
+	return counts;
+}
+
+function MapLegend({ counts }: { counts: number[] }) {
+	return (
+		<div className="bg-background/80 border pointer-events-none absolute bottom-3 left-3 z-20 flex flex-col gap-1 rounded-sm px-2.5 py-2 shadow-sm backdrop-blur-xs">
+			<p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
+				Magnitude
+			</p>
+			{MAGNITUDE_LEGEND.map(({ label, color }, index) => (
+				<div key={label} className="flex items-center gap-2">
+					<span
+						className="size-2.5 shrink-0 rounded-full"
+						style={{ backgroundColor: color }}
+					/>
+					<span className="text-foreground text-[10px] tabular-nums">
+						{label}
+					</span>
+					<span
+						className={`text-muted-foreground ml-auto text-[10px] tabular-nums ${
+							counts[index] === 0 ? "opacity-40" : ""
+						}`}
+					>
+						<NumberFlow
+							locales="en-US"
+							format={{ maximumFractionDigits: 0, useGrouping: true }}
+							value={counts[index]}
+						/>
+					</span>
+				</div>
+			))}
+			<p className="text-muted-foreground font-mono mt-0.5 text-[10px]">
+				point size = magnitude
+			</p>
+		</div>
+	);
 }
 
 function MapEventHandler({
@@ -349,6 +425,11 @@ export function EarthquakeMap({
 }) {
 	const geojson = useMemo(() => buildGeoJSON(features), [features]);
 
+	const magnitudeBandCounts = useMemo(
+		() => getMagnitudeBandCounts(features),
+		[features],
+	);
+
 	const featureById = useMemo(() => {
 		const m = new globalThis.Map<string, EarthquakeFeature>();
 		for (const f of features) m.set(f.id, f);
@@ -371,12 +452,34 @@ export function EarthquakeMap({
 					selectedId={selectedId}
 					showRings={showRings}
 				/>
+				<SelectedHighlight features={features} selectedId={selectedId} />
 				<MapClusterLayer
 					data={geojson}
 					clusterRadius={50}
 					clusterMaxZoom={14}
-					clusterColors={["#22c55e", "#eab308", "#ef4444"]}
+					// Neutral cluster shades: hue is reserved for magnitude.
+					clusterColors={["#94a3b8", "#64748b", "#475569"]}
 					clusterThresholds={[10, 50]}
+					fadeByAge
+					pointRadius={[
+						"interpolate",
+						["linear"],
+						["coalesce", ["get", "mag"], 0],
+						0,
+						4,
+						3,
+						6,
+						4,
+						9,
+						5,
+						13,
+						6,
+						18,
+						7,
+						24,
+						8,
+						31,
+					]}
 					pointColor={[
 						"case",
 						[">=", ["get", "mag"], 7],
@@ -389,6 +492,8 @@ export function EarthquakeMap({
 						"#eab308",
 						[">=", ["get", "mag"], 3],
 						"#84cc16",
+						[">=", ["get", "mag"], 2],
+						"#10b981",
 						"#9ca3af",
 					]}
 					onPointClick={(f) => {
@@ -405,6 +510,7 @@ export function EarthquakeMap({
 					showFullscreen
 				/>
 			</Map>
+			<MapLegend counts={magnitudeBandCounts} />
 			<div className="pointer-events-none absolute top-3 left-3 z-20">
 				{onOpenEarthquakePanel ? (
 					<button

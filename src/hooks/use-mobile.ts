@@ -2,21 +2,18 @@ import * as React from "react";
 
 const MOBILE_BREAKPOINT = 768;
 
+const query = `(max-width: ${MOBILE_BREAKPOINT - 1}px)`;
+
+function subscribe(callback: () => void) {
+	const mql = window.matchMedia(query);
+	mql.addEventListener("change", callback);
+	return () => mql.removeEventListener("change", callback);
+}
+
 export function useIsMobile() {
-	const [isMobile, setIsMobile] = React.useState<boolean | undefined>(
-		undefined,
+	return React.useSyncExternalStore(
+		subscribe,
+		() => window.innerWidth < MOBILE_BREAKPOINT,
+		() => false,
 	);
-
-	const update = React.useCallback(() => {
-		setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
-	}, []);
-
-	React.useLayoutEffect(() => {
-		const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
-		mql.addEventListener("change", update);
-		update();
-		return () => mql.removeEventListener("change", update);
-	}, [update]);
-
-	return !!isMobile;
 }

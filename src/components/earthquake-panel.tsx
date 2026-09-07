@@ -17,10 +17,12 @@ import {
 	MapPin,
 	RefreshCw,
 	Ruler,
+	SearchIcon,
 	ShieldAlert,
 	Waves,
+	X,
 } from "lucide-react";
-import { Activity, memo, useCallback, useMemo } from "react";
+import { Activity, memo, useCallback, useMemo, useState } from "react";
 import { VList } from "virtua";
 
 import type { TimeRange } from "@/app/page";
@@ -32,14 +34,15 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { haversineDistanceKm } from "@/lib/geo";
-import { sortFeaturesByTime, type SortOrder } from "@/lib/earthquake";
+import { sortFeatures, type SortOrder } from "@/lib/earthquake";
 import type { EarthquakeFeature } from "@/lib/earthquake";
+import { haversineDistanceKm } from "@/lib/geo";
 
 export type ListMode = "all" | "significant" | "nearMe";
 
@@ -157,27 +160,29 @@ const EarthquakeListItem = memo(function EarthquakeListItem({
 	);
 });
 
-function EarthquakeDetail({ feature }: { feature: EarthquakeFeature }) {
-	const props = feature.properties;
-	const [longitude, latitude, depth] = feature.geometry.coordinates;
-	const time = props.time ? new Date(props.time) : null;
-	const updated = props.updated ? new Date(props.updated) : null;
-
-	const DetailRow = ({
-		icon: Icon,
-		label,
-		value,
-	}: {
-		icon: React.ElementType;
-		label: string;
-		value: React.ReactNode;
-	}) => (
+function DetailRow({
+	icon: Icon,
+	label,
+	value,
+}: {
+	icon: React.ElementType;
+	label: string;
+	value: React.ReactNode;
+}) {
+	return (
 		<div className="flex items-center gap-2 py-1.5">
 			<Icon className="size-3.5 shrink-0 text-muted-foreground" />
 			<span className="text-muted-foreground text-xs">{label}</span>
 			<span className="ml-auto text-xs font-medium">{value}</span>
 		</div>
 	);
+}
+
+function EarthquakeDetail({ feature }: { feature: EarthquakeFeature }) {
+	const props = feature.properties;
+	const [longitude, latitude, depth] = feature.geometry.coordinates;
+	const time = props.time ? new Date(props.time) : null;
+	const updated = props.updated ? new Date(props.updated) : null;
 
 	return (
 		<div className="space-y-3 p-3">
@@ -342,7 +347,55 @@ function ListModeTab({
 const sortOrderLabels: Record<SortOrder, string> = {
 	newest: "Newest",
 	oldest: "Oldest",
+	biggest: "Biggest",
+	smallest: "Smallest",
+	nearest: "Nearest to me",
+	furthest: "Furthest from me",
 };
+
+const listModeSearchPlaceholder: Record<ListMode, string> = {
+	all: "Search all earthquakes by place…",
+	significant: "Search significant earthquakes by place…",
+	nearMe: "Search nearby earthquakes by place…",
+};
+
+function ListSearchBar({
+	listMode,
+	value,
+	onChange,
+}: {
+	listMode: ListMode;
+	value: string;
+	onChange: (value: string) => void;
+}) {
+	return (
+		<div className="relative border-b px-3 py-2">
+			<SearchIcon
+				className="text-muted-foreground pointer-events-none absolute top-1/2 left-6 size-3.5 -translate-y-1/2"
+				aria-hidden
+			/>
+			<Input
+				type="text"
+				value={value}
+				onChange={(event) => onChange(event.target.value)}
+				placeholder={listModeSearchPlaceholder[listMode]}
+				aria-label={listModeSearchPlaceholder[listMode]}
+				className="h-7 pr-7 pl-8"
+			/>
+			{value ? (
+				<button
+					type="button"
+					onClick={() => onChange("")}
+					title="Clear search"
+					aria-label="Clear search"
+					className="text-muted-foreground hover:text-foreground absolute top-1/2 right-4.5 -translate-y-1/2"
+				>
+					<X className="size-3.5" />
+				</button>
+			) : null}
+		</div>
+	);
+}
 
 function FeedControls({
 	timeRange,
@@ -411,15 +464,59 @@ function FeedControls({
 						className="text-xs"
 					>
 						Newest
-						{sortOrder === "newest" && <CheckIcon className="ml-auto size-3.5" />}
+						{sortOrder === "newest" && (
+							<CheckIcon className="ml-auto size-3.5" />
+						)}
 					</DropdownMenuItem>
 					<DropdownMenuItem
 						onClick={() => onSortOrderChange("oldest")}
 						className="text-xs"
 					>
 						Oldest
-						{sortOrder === "oldest" && <CheckIcon className="ml-auto size-3.5" />}
+						{sortOrder === "oldest" && (
+							<CheckIcon className="ml-auto size-3.5" />
+						)}
 					</DropdownMenuItem>
+					<DropdownMenuItem
+						onClick={() => onSortOrderChange("biggest")}
+						className="text-xs"
+					>
+						Biggest
+						{sortOrder === "biggest" && (
+							<CheckIcon className="ml-auto size-3.5" />
+						)}
+					</DropdownMenuItem>
+					<DropdownMenuItem
+						onClick={() => onSortOrderChange("smallest")}
+						className="text-xs"
+					>
+						Smallest
+						{sortOrder === "smallest" && (
+							<CheckIcon className="ml-auto size-3.5" />
+						)}
+					</DropdownMenuItem>
+					{canShowNearMe && (
+						<>
+							<DropdownMenuItem
+								onClick={() => onSortOrderChange("nearest")}
+								className="text-xs"
+							>
+								Nearest to me
+								{sortOrder === "nearest" && (
+									<CheckIcon className="ml-auto size-3.5" />
+								)}
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onClick={() => onSortOrderChange("furthest")}
+								className="text-xs"
+							>
+								Furthest from me
+								{sortOrder === "furthest" && (
+									<CheckIcon className="ml-auto size-3.5" />
+								)}
+							</DropdownMenuItem>
+						</>
+					)}
 				</DropdownMenuContent>
 			</DropdownMenu>
 
@@ -502,9 +599,33 @@ export function EarthquakePanel({
 	const selectedFeature =
 		selectedId !== null ? (featureById.get(selectedId) ?? null) : null;
 
+	// Each tab keeps its own search query so switching tabs preserves it.
+	const [searches, setSearches] = useState<Record<ListMode, string>>({
+		all: "",
+		significant: "",
+		nearMe: "",
+	});
+	const search = searches[listMode] ?? "";
+	const handleSearchChange = useCallback(
+		(value: string) => {
+			setSearches((prev) => ({ ...prev, [listMode]: value }));
+		},
+		[listMode],
+	);
+
 	const sortedFeatures = useMemo(() => {
-		return sortFeaturesByTime(features, sortOrder);
-	}, [features, sortOrder]);
+		return sortFeatures(features, sortOrder, nearMeCenter);
+	}, [features, sortOrder, nearMeCenter]);
+
+	const query = search.trim().toLowerCase();
+	const visibleFeatures = useMemo(() => {
+		if (!query) return sortedFeatures;
+		return sortedFeatures.filter((f) => {
+			const text =
+				f.properties.place ?? f.properties.title ?? f.properties.magType ?? "";
+			return text.toLowerCase().includes(query);
+		});
+	}, [sortedFeatures, query]);
 
 	const pickEarthquake = useCallback((id: string) => onSelect(id), [onSelect]);
 
@@ -578,9 +699,18 @@ export function EarthquakePanel({
 								onSortOrderChange={onSortOrderChange}
 								onListModeChange={onListModeChange}
 							/>
+							<ListSearchBar
+								listMode={listMode}
+								value={search}
+								onChange={handleSearchChange}
+							/>
 							<div className="min-h-0 flex-1 overflow-hidden">
-								{sortedFeatures.length > 0 ? (
-									<VList className="h-full" data={sortedFeatures} itemSize={72}>
+								{visibleFeatures.length > 0 ? (
+									<VList
+										className="h-full"
+										data={visibleFeatures}
+										itemSize={72}
+									>
 										{(feature) => {
 											const [lng, lat] = feature.geometry.coordinates;
 											const distanceKm =
@@ -607,20 +737,30 @@ export function EarthquakePanel({
 									<div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
 										<ActivityIcon className="text-muted-foreground size-8" />
 										<p className="text-muted-foreground text-sm">
-											No earthquakes found
+											{query
+												? "No earthquakes match your search"
+												: "No earthquakes found"}
 										</p>
-										{listMode === "significant" && (
-											<p className="text-muted-foreground max-w-[200px] text-xs">
-												Significant earthquakes are rare. Try a longer time
-												range.
-											</p>
-										)}
-										{listMode === "nearMe" && canShowNearMe && (
+										{query ? (
 											<p className="text-muted-foreground max-w-[220px] text-xs">
-												No events in the last {timeRangeLabels[timeRange]}{" "}
-												within about {nearMeRadiusKm}&nbsp;km. Try a longer time
-												range or move the map and use locate again.
+												Try a different place name or clear the search.
 											</p>
+										) : (
+											<>
+												{listMode === "significant" && (
+													<p className="text-muted-foreground max-w-[200px] text-xs">
+														Significant earthquakes are rare. Try a longer time
+														range.
+													</p>
+												)}
+												{listMode === "nearMe" && canShowNearMe && (
+													<p className="text-muted-foreground max-w-[220px] text-xs">
+														No events in the last {timeRangeLabels[timeRange]}{" "}
+														within about {nearMeRadiusKm}&nbsp;km. Try a longer
+														time range or move the map and use locate again.
+													</p>
+												)}
+											</>
 										)}
 									</div>
 								)}

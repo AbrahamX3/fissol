@@ -1,9 +1,11 @@
 "use client";
 
-import { X, Minus, Plus, Locate, Maximize, Loader2 } from "lucide-react";
+import type * as GeoJSON from "geojson";
 
 import "maplibre-gl/dist/maplibre-gl.css";
-import MapLibreGL, { type PopupOptions, type MarkerOptions } from "maplibre-gl";
+import { X, Minus, Plus, Locate, Maximize, Loader2 } from "lucide-react";
+import * as MapLibreGL from "maplibre-gl";
+import type { MarkerOptions, PopupOptions } from "maplibre-gl";
 import {
 	createContext,
 	forwardRef,
@@ -18,8 +20,14 @@ import {
 	type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
+
+// MapLibre v6 requires an explicit worker URL in bundler environments (Next.js
+// doesn't emit the worker's sibling chunk from import.meta.url resolution).
+// The files are copied to public/maplibre by scripts/copy-maplibre-worker.mjs.
+MapLibreGL.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 const defaultStyles = {
 	dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
@@ -830,36 +838,56 @@ function MapControls({
 
 	const handleLocate = useCallback(() => {
 		setWaitingForLocation(true);
-		if ("geolocation" in navigator) {
-			navigator.geolocation.getCurrentPosition(
-				(pos) => {
-					const coords = {
-						longitude: pos.coords.longitude,
-						latitude: pos.coords.latitude,
-					};
-					map?.flyTo({
-						center: [coords.longitude, coords.latitude],
-						zoom: 14,
-						duration: 1500,
-					});
-					onLocate?.(coords);
-					setWaitingForLocation(false);
-				},
-				(error) => {
-					console.error("Error getting location:", error);
-					setWaitingForLocation(false);
-				},
-			);
+		if (!("geolocation" in navigator)) {
+			toast.error("Geolocation is not supported by this browser.");
+			setWaitingForLocation(false);
+			return;
 		}
+		navigator.geolocation.getCurrentPosition(
+			(pos) => {
+				const coords = {
+					longitude: pos.coords.longitude,
+					latitude: pos.coords.latitude,
+				};
+				map?.flyTo({
+					center: [coords.longitude, coords.latitude],
+					zoom: 14,
+					duration: 1500,
+				});
+				onLocate?.(coords);
+				setWaitingForLocation(false);
+			},
+			(error) => {
+				console.error("Error getting location:", error);
+				const message =
+					error.code === error.PERMISSION_DENIED
+						? "Location permission denied. Enable it in your browser settings to use Near me."
+						: error.code === error.POSITION_UNAVAILABLE ||
+							  error.code === error.TIMEOUT
+							? "Could not determine your location. Please try again."
+							: `Could not get your location: ${error.message}`;
+				toast.error(message);
+				setWaitingForLocation(false);
+			},
+			{ enableHighAccuracy: false, timeout: 10_000, maximumAge: 60_000 },
+		);
 	}, [map, onLocate]);
 
 	const handleFullscreen = useCallback(() => {
 		const container = map?.getContainer();
 		if (!container) return;
-		if (document.fullscreenElement) {
-			document.exitFullscreen();
-		} else {
-			container.requestFullscreen();
+		try {
+			if (document.fullscreenElement) {
+				void document.exitFullscreen();
+			} else {
+				void container.requestFullscreen().catch((error: unknown) => {
+					console.error("Failed to enter fullscreen:", error);
+					toast.error("Could not enter fullscreen mode.");
+				});
+			}
+		} catch (error) {
+			console.error("Fullscreen toggle failed:", error);
+			toast.error("Could not toggle fullscreen mode.");
 		}
 	}, [map]);
 
@@ -1125,8 +1153,9 @@ function MapRoute({
 			try {
 				if (map.getLayer(layerId)) map.removeLayer(layerId);
 				if (map.getSource(sourceId)) map.removeSource(sourceId);
-			} catch {
-				// ignore
+			} catch (error) {
+				// Expected during unmount/style swaps — map may already be gone.
+				console.debug("Map layer cleanup skipped:", error);
 			}
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1434,8 +1463,9 @@ function MapArc<T extends MapArcDatum = MapArcDatum>({
 				if (map.getLayer(layerId)) map.removeLayer(layerId);
 				if (map.getLayer(hitLayerId)) map.removeLayer(hitLayerId);
 				if (map.getSource(sourceId)) map.removeSource(sourceId);
-			} catch {
-				// ignore
+			} catch (error) {
+				// Expected during unmount/style swaps — map may already be gone.
+				console.debug("Map heatmap layer cleanup skipped:", error);
 			}
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1566,6 +1596,10 @@ type MapClusterLayerProps<
 	clusterThresholds?: [number, number];
 	/** Color for unclustered individual points (default: "#3b82f6") */
 	pointColor?: string | MapLibreGL.ExpressionSpecification;
+	/** Radius for unclustered individual points. A number or a data-driven expression over feature properties (default: 5). */
+	pointRadius?: number | MapLibreGL.ExpressionSpecification;
+	/** Fade point opacity with feature age (requires a numeric `time` epoch-ms property). */
+	fadeByAge?: boolean;
 	/** Callback when an unclustered point is clicked */
 	onPointClick?: (
 		feature: GeoJSON.Feature<GeoJSON.Point, P>,
@@ -1579,6 +1613,28 @@ type MapClusterLayerProps<
 	) => void;
 };
 
+/** Opacity steps for fading points by their epoch-ms `time` property (1h → 30d). */
+export function buildAgeFadeExpression(): MapLibreGL.ExpressionSpecification {
+	const now = Date.now();
+	const HOUR = 3_600_000;
+	const DAY = 24 * HOUR;
+	return [
+		"interpolate",
+		["linear"],
+		["-", now, ["get", "time"]],
+		0,
+		1,
+		HOUR,
+		0.85,
+		DAY,
+		0.7,
+		7 * DAY,
+		0.5,
+		30 * DAY,
+		0.4,
+	];
+}
+
 function MapClusterLayer<
 	P extends GeoJSON.GeoJsonProperties = GeoJSON.GeoJsonProperties,
 >({
@@ -1588,6 +1644,8 @@ function MapClusterLayer<
 	clusterColors = ["#22c55e", "#eab308", "#ef4444"],
 	clusterThresholds = [100, 750],
 	pointColor = "#3b82f6",
+	pointRadius = 5,
+	fadeByAge = false,
 	onPointClick,
 	onClusterClick,
 }: MapClusterLayerProps<P>) {
@@ -1602,6 +1660,8 @@ function MapClusterLayer<
 		clusterColors,
 		clusterThresholds,
 		pointColor,
+		pointRadius,
+		fadeByAge,
 	});
 
 	// Add source and layers on mount
@@ -1672,9 +1732,10 @@ function MapClusterLayer<
 			filter: ["!", ["has", "point_count"]],
 			paint: {
 				"circle-color": pointColor,
-				"circle-radius": 5,
-				"circle-stroke-width": 2,
+				"circle-radius": pointRadius,
+				"circle-stroke-width": 1,
 				"circle-stroke-color": "#fff",
+				...(fadeByAge ? { "circle-opacity": buildAgeFadeExpression() } : {}),
 			},
 		});
 
@@ -1686,8 +1747,9 @@ function MapClusterLayer<
 					map.removeLayer(unclusteredLayerId);
 				if (map.getLayer(clusterLayerId)) map.removeLayer(clusterLayerId);
 				if (map.getSource(sourceId)) map.removeSource(sourceId);
-			} catch {
-				// ignore
+			} catch (error) {
+				// Expected during unmount/style swaps — map may already be gone.
+				console.debug("Map cluster layer cleanup skipped:", error);
 			}
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1739,7 +1801,27 @@ function MapClusterLayer<
 			map.setPaintProperty(unclusteredLayerId, "circle-color", pointColor);
 		}
 
-		stylePropsRef.current = { clusterColors, clusterThresholds, pointColor };
+		// Update unclustered point layer radius
+		if (map.getLayer(unclusteredLayerId) && prev.pointRadius !== pointRadius) {
+			map.setPaintProperty(unclusteredLayerId, "circle-radius", pointRadius);
+		}
+
+		// Update age fade (recomputed so the fade tracks the current time)
+		if (map.getLayer(unclusteredLayerId) && prev.fadeByAge !== fadeByAge) {
+			map.setPaintProperty(
+				unclusteredLayerId,
+				"circle-opacity",
+				fadeByAge ? buildAgeFadeExpression() : 1,
+			);
+		}
+
+		stylePropsRef.current = {
+			clusterColors,
+			clusterThresholds,
+			pointColor,
+			pointRadius,
+			fadeByAge,
+		};
 	}, [
 		isLoaded,
 		map,
@@ -1748,6 +1830,8 @@ function MapClusterLayer<
 		clusterColors,
 		clusterThresholds,
 		pointColor,
+		pointRadius,
+		fadeByAge,
 	]);
 
 	// Handle click events

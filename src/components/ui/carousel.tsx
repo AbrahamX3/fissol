@@ -95,12 +95,16 @@ function Carousel({
 
 	React.useEffect(() => {
 		if (!api) return;
-		onSelect(api);
+		// Embla fires "init" asynchronously on creation and "reInit" on resize,
+		// so initial state syncs without a synchronous setState here.
+		api.on("init", onSelect);
 		api.on("reInit", onSelect);
 		api.on("select", onSelect);
 
 		return () => {
-			api?.off("select", onSelect);
+			api.off("init", onSelect);
+			api.off("reInit", onSelect);
+			api.off("select", onSelect);
 		};
 	}, [api, onSelect]);
 
