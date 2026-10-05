@@ -2,9 +2,9 @@
 
 import NumberFlow from "@number-flow/react";
 import type * as GeoJSON from "geojson";
-import { Activity } from "lucide-react";
+import { Activity, ChevronDown, Layers } from "lucide-react";
 import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
-import { useEffect, useId, useMemo } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import {
 	Map,
@@ -336,37 +336,82 @@ function getMagnitudeBandCounts(features: EarthquakeFeature[]): number[] {
 	return counts;
 }
 
-function MapLegend({ counts }: { counts: number[] }) {
+function MapLegend({
+	counts,
+	mobile,
+}: {
+	counts: number[];
+	/** Mobile layout: pin to the top-right and allow collapsing. */
+	mobile?: boolean;
+}) {
+	const [collapsed, setCollapsed] = useState(false);
+	const bodyId = useId();
+	const isCollapsed = mobile && collapsed;
+
 	return (
-		<div className="bg-background/80 border pointer-events-none absolute bottom-3 left-3 z-20 flex flex-col gap-1 rounded-sm px-2.5 py-2 shadow-sm backdrop-blur-xs">
-			<p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
-				Magnitude
-			</p>
-			{MAGNITUDE_LEGEND.map(({ label, color }, index) => (
-				<div key={label} className="flex items-center gap-2">
-					<span
-						className="size-2.5 shrink-0 rounded-full"
-						style={{ backgroundColor: color }}
+		<div
+			className={cn(
+				"bg-background/80 border absolute z-20 flex flex-col gap-1 rounded-sm px-2.5 py-2 shadow-sm backdrop-blur-xs",
+				mobile ? "top-3 right-3" : "bottom-3 left-3 pointer-events-none",
+			)}
+		>
+			{mobile ? (
+				<button
+					type="button"
+					onClick={() => setCollapsed((v) => !v)}
+					aria-expanded={!isCollapsed}
+					aria-controls={bodyId}
+					className="flex w-full items-center gap-1.5 text-left"
+				>
+					<Layers
+						className="text-muted-foreground size-3.5 shrink-0"
+						aria-hidden
 					/>
-					<span className="text-foreground text-[10px] tabular-nums">
-						{label}
+					<span className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
+						Magnitude
 					</span>
-					<span
-						className={`text-muted-foreground ml-auto text-[10px] tabular-nums ${
-							counts[index] === 0 ? "opacity-40" : ""
-						}`}
-					>
-						<NumberFlow
-							locales="en-US"
-							format={{ maximumFractionDigits: 0, useGrouping: true }}
-							value={counts[index]}
-						/>
-					</span>
+					<ChevronDown
+						className={cn(
+							"text-muted-foreground ml-auto size-3.5 shrink-0 transition-transform",
+							isCollapsed && "-rotate-90",
+						)}
+						aria-hidden
+					/>
+				</button>
+			) : (
+				<p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
+					Magnitude
+				</p>
+			)}
+			{!isCollapsed && (
+				<div id={bodyId} className="flex flex-col gap-1">
+					{MAGNITUDE_LEGEND.map(({ label, color }, index) => (
+						<div key={label} className="flex items-center gap-2">
+							<span
+								className="size-2.5 shrink-0 rounded-full"
+								style={{ backgroundColor: color }}
+							/>
+							<span className="text-foreground text-[10px] tabular-nums">
+								{label}
+							</span>
+							<span
+								className={`text-muted-foreground ml-auto text-[10px] tabular-nums ${
+									counts[index] === 0 ? "opacity-40" : ""
+								}`}
+							>
+								<NumberFlow
+									locales="en-US"
+									format={{ maximumFractionDigits: 0, useGrouping: true }}
+									value={counts[index]}
+								/>
+							</span>
+						</div>
+					))}
+					<p className="text-muted-foreground font-mono mt-0.5 text-[10px]">
+						point size = magnitude
+					</p>
 				</div>
-			))}
-			<p className="text-muted-foreground font-mono mt-0.5 text-[10px]">
-				point size = magnitude
-			</p>
+			)}
 		</div>
 	);
 }
@@ -510,7 +555,10 @@ export function EarthquakeMap({
 					showFullscreen
 				/>
 			</Map>
-			<MapLegend counts={magnitudeBandCounts} />
+			<MapLegend
+				counts={magnitudeBandCounts}
+				mobile={!!onOpenEarthquakePanel}
+			/>
 			<div className="pointer-events-none absolute top-3 left-3 z-20">
 				{onOpenEarthquakePanel ? (
 					<button
