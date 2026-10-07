@@ -49,24 +49,38 @@ export type ListMode = "all" | "significant" | "nearMe";
 function getMagnitudeColor(mag: number | null): string {
 	if (mag === null)
 		return "bg-muted text-foreground ring-1 ring-inset ring-border";
+
 	if (mag < 2.0)
 		return "bg-muted text-foreground ring-1 ring-inset ring-border";
+
 	if (mag < 3.0) return "bg-emerald-500 text-white";
+
 	if (mag < 4.0) return "bg-lime-500 text-black";
+
 	if (mag < 5.0) return "bg-yellow-500 text-black";
+
 	if (mag < 6.0) return "bg-orange-500 text-white";
+
 	if (mag < 7.0) return "bg-red-500 text-white";
+
 	return "bg-purple-600 text-white";
 }
 
 function getMagnitudeLabel(mag: number | null): string {
 	if (mag === null) return "Unknown";
+
 	if (mag < 2.0) return "Micro";
+
 	if (mag < 3.0) return "Minor";
+
 	if (mag < 4.0) return "Light";
+
 	if (mag < 5.0) return "Moderate";
+
 	if (mag < 6.0) return "Strong";
+
 	if (mag < 7.0) return "Major";
+
 	return "Great";
 }
 
@@ -592,7 +606,9 @@ export function EarthquakePanel({
 }) {
 	const featureById = useMemo(() => {
 		const m = new Map<string, EarthquakeFeature>();
+
 		for (const f of features) m.set(f.id, f);
+
 		return m;
 	}, [features]);
 
@@ -605,7 +621,9 @@ export function EarthquakePanel({
 		significant: "",
 		nearMe: "",
 	});
+
 	const search = searches[listMode] ?? "";
+
 	const handleSearchChange = useCallback(
 		(value: string) => {
 			setSearches((prev) => ({ ...prev, [listMode]: value }));
@@ -618,11 +636,14 @@ export function EarthquakePanel({
 	}, [features, sortOrder, nearMeCenter]);
 
 	const query = search.trim().toLowerCase();
+
 	const visibleFeatures = useMemo(() => {
 		if (!query) return sortedFeatures;
+
 		return sortedFeatures.filter((f) => {
 			const text =
 				f.properties.place ?? f.properties.title ?? f.properties.magType ?? "";
+
 			return text.toLowerCase().includes(query);
 		});
 	}, [sortedFeatures, query]);
@@ -713,6 +734,7 @@ export function EarthquakePanel({
 									>
 										{(feature) => {
 											const [lng, lat] = feature.geometry.coordinates;
+
 											const distanceKm =
 												listMode === "nearMe" && nearMeCenter
 													? haversineDistanceKm(
@@ -722,6 +744,7 @@ export function EarthquakePanel({
 															lng,
 														)
 													: null;
+
 											return (
 												<EarthquakeListItem
 													key={feature.id}

@@ -3,7 +3,7 @@
 import NumberFlow from "@number-flow/react";
 import type * as GeoJSON from "geojson";
 import { Activity, ChevronDown, Layers } from "lucide-react";
-import type { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
+import { GeoJSONSource, type Map as MapLibreMap } from "maplibre-gl";
 import { useEffect, useId, useMemo, useState } from "react";
 
 import {
@@ -18,12 +18,19 @@ import { cn } from "@/lib/utils";
 
 function getMagnitudeReachKm(mag: number | null): number {
 	if (mag === null) return 5;
+
 	if (mag < 2.0) return 5;
+
 	if (mag < 3.0) return 15;
+
 	if (mag < 4.0) return 50;
+
 	if (mag < 5.0) return 150;
+
 	if (mag < 6.0) return 500;
+
 	if (mag < 7.0) return 1500;
+
 	return 4000;
 }
 
@@ -43,16 +50,19 @@ function createCirclePolygon(
 
 	for (let i = 0; i <= points; i++) {
 		const bearing = (i * 2 * Math.PI) / points;
+
 		const lat2 = Math.asin(
 			Math.sin(latRad) * Math.cos(angular) +
 				Math.cos(latRad) * Math.sin(angular) * Math.cos(bearing),
 		);
+
 		const lon2 =
 			lonRad +
 			Math.atan2(
 				Math.sin(bearing) * Math.sin(angular) * Math.cos(latRad),
 				Math.cos(angular) - Math.sin(latRad) * Math.sin(lat2),
 			);
+
 		coords.push([(lon2 * 180) / Math.PI, (lat2 * 180) / Math.PI]);
 	}
 
@@ -84,12 +94,19 @@ function buildReachRingsGeoJSON(
 
 function getMagnitudeColor(mag: number | null): string {
 	if (mag === null) return "#9ca3af";
+
 	if (mag < 2.0) return "#9ca3af";
+
 	if (mag < 3.0) return "#10b981";
+
 	if (mag < 4.0) return "#84cc16";
+
 	if (mag < 5.0) return "#eab308";
+
 	if (mag < 6.0) return "#f97316";
+
 	if (mag < 7.0) return "#ef4444";
+
 	return "#9333ea";
 }
 
@@ -102,7 +119,7 @@ function buildGeoJSON(
 			type: "Feature" as const,
 			geometry: {
 				type: "Point" as const,
-				coordinates: f.geometry.coordinates as [number, number, number],
+				coordinates: f.geometry.coordinates,
 			},
 			properties: {
 				...f.properties,
@@ -133,10 +150,12 @@ function ReachRings({
 		if (!showRings || features.length === 0) {
 			return { type: "FeatureCollection" as const, features: [] };
 		}
+
 		const selected =
 			selectedId !== null
 				? (features.find((f) => f.id === selectedId) ?? null)
 				: null;
+
 		const ringFeatures = selected
 			? [selected]
 			: [...features]
@@ -145,6 +164,7 @@ function ReachRings({
 							(b.properties.mag ?? -Infinity) - (a.properties.mag ?? -Infinity),
 					)
 					.slice(0, MAX_RING_FEATURES);
+
 		return buildReachRingsGeoJSON(ringFeatures);
 	}, [features, selectedId, showRings]);
 
@@ -193,9 +213,12 @@ function ReachRings({
 		return () => {
 			try {
 				mapInstance.off("styledata", setup);
+
 				if (!mapInstance.getSource(sourceId)) return;
+
 				if (mapInstance.getLayer(`${sourceId}-fill`))
 					mapInstance.removeLayer(`${sourceId}-fill`);
+
 				if (mapInstance.getLayer(`${sourceId}-stroke`))
 					mapInstance.removeLayer(`${sourceId}-stroke`);
 				mapInstance.removeSource(sourceId);
@@ -209,9 +232,11 @@ function ReachRings({
 
 	useEffect(() => {
 		if (!map) return;
+
 		try {
-			const source = map.getSource(sourceId) as GeoJSONSource | undefined;
-			if (!source) return;
+			const source = map.getSource(sourceId);
+
+			if (!(source instanceof GeoJSONSource)) return;
 			source.setData(ringsGeoJSON);
 		} catch (error) {
 			// Map or style not ready, or instance was removed mid-update.
@@ -240,9 +265,11 @@ function SelectedHighlight({
 			selectedId !== null
 				? (features.find((f) => f.id === selectedId) ?? null)
 				: null;
+
 		if (!selected) {
 			return { type: "FeatureCollection" as const, features: [] };
 		}
+
 		return {
 			type: "FeatureCollection" as const,
 			features: [
@@ -261,6 +288,7 @@ function SelectedHighlight({
 	useEffect(() => {
 		if (!map) return;
 		const mapInstance: MapLibreMap = map;
+
 		try {
 			mapInstance.addSource(sourceId, {
 				type: "geojson",
@@ -282,10 +310,12 @@ function SelectedHighlight({
 		} catch {
 			// Layer already added or style tearing down.
 		}
+
 		return () => {
 			try {
 				if (mapInstance.getLayer(`${sourceId}-ring`))
 					mapInstance.removeLayer(`${sourceId}-ring`);
+
 				if (mapInstance.getSource(sourceId)) mapInstance.removeSource(sourceId);
 			} catch {
 				// Map may already be gone.
@@ -296,9 +326,11 @@ function SelectedHighlight({
 
 	useEffect(() => {
 		if (!map) return;
+
 		try {
-			const source = map.getSource(sourceId) as GeoJSONSource | undefined;
-			if (!source) return;
+			const source = map.getSource(sourceId);
+
+			if (!(source instanceof GeoJSONSource)) return;
 			source.setData(highlightGeoJSON);
 		} catch {
 			// Map or style not ready.
@@ -323,8 +355,10 @@ function getMagnitudeBandCounts(features: EarthquakeFeature[]): number[] {
 	const counts = Array.from<number>({ length: MAGNITUDE_LEGEND.length }).fill(
 		0,
 	);
+
 	for (const f of features) {
 		const mag = f.properties.mag;
+
 		if (mag === null || mag < 2) counts[6]++;
 		else if (mag < 3) counts[5]++;
 		else if (mag < 4) counts[4]++;
@@ -333,6 +367,7 @@ function getMagnitudeBandCounts(features: EarthquakeFeature[]): number[] {
 		else if (mag < 7) counts[1]++;
 		else counts[0]++;
 	}
+
 	return counts;
 }
 
@@ -435,6 +470,7 @@ function MapEventHandler({
 		};
 
 		map.on("click", handleClick);
+
 		return () => {
 			map?.off?.("click", handleClick);
 		};
@@ -443,6 +479,7 @@ function MapEventHandler({
 	useEffect(() => {
 		if (!map || !selectedId) return;
 		const feature = featureById.get(selectedId);
+
 		if (!feature) return;
 		const [lng, lat] = feature.geometry.coordinates;
 		map.flyTo({ center: [lng, lat], zoom: 10, duration: 1000 });
@@ -477,7 +514,9 @@ export function EarthquakeMap({
 
 	const featureById = useMemo(() => {
 		const m = new globalThis.Map<string, EarthquakeFeature>();
+
 		for (const f of features) m.set(f.id, f);
+
 		return m;
 	}, [features]);
 
@@ -542,7 +581,9 @@ export function EarthquakeMap({
 						"#9ca3af",
 					]}
 					onPointClick={(f) => {
+						// SAFETY: buildGeoJSON writes the quake id onto every point's properties.
 						const id = (f.properties as { id?: string })?.id;
+
 						if (id) onSelect(id);
 					}}
 				/>

@@ -2,14 +2,10 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Activity, ChevronUp } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useCallback, useMemo, useState } from "react";
 
-import { EarthquakeMap } from "@/components/earthquake-map";
-import {
-	EarthquakePanel,
-	type ListMode,
-	type TabCounts,
-} from "@/components/earthquake-panel";
+import type { ListMode, TabCounts } from "@/components/earthquake-panel";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import {
@@ -26,17 +22,39 @@ import {
 import { useNearMeCoords } from "@/lib/near-me-coords";
 import { cn } from "@/lib/utils";
 
+// MapLibre GL is ~1.6 MB; load the map after the shell instead of blocking it.
+const EarthquakeMap = dynamic(
+	() => import("@/components/earthquake-map").then((m) => m.EarthquakeMap),
+	{
+		ssr: false,
+		loading: () => <div className="bg-muted/30 h-full w-full" />,
+	},
+);
+
+// The list panel pulls in virtualization and menu primitives; load it
+// alongside the map rather than in the critical path.
+const EarthquakePanel = dynamic(
+	() => import("@/components/earthquake-panel").then((m) => m.EarthquakePanel),
+	{
+		ssr: false,
+		loading: () => <div className="bg-muted/20 h-full w-full" />,
+	},
+);
+
 export type TimeRange = "hour" | "day" | "week" | "month";
 
 const NEAR_ME_RADIUS_KM = 500;
+
 const NEAR_ME_QUERY_LIMIT = 5000;
 
 function startTimeISOForEarthquakeRange(timeRange: TimeRange): string {
 	const d = new Date();
+
 	if (timeRange === "hour") d.setHours(d.getHours() - 1);
 	else if (timeRange === "day") d.setDate(d.getDate() - 1);
 	else if (timeRange === "week") d.setDate(d.getDate() - 7);
 	else d.setMonth(d.getMonth() - 1);
+
 	return d.toISOString();
 }
 
@@ -97,6 +115,7 @@ export default function Home() {
 	const handleSelect = useCallback(
 		(id: string | null) => {
 			setSelectedId(id);
+
 			if (isMobile && id !== null) {
 				setMobileSheetOpen(true);
 			}
@@ -118,8 +137,10 @@ export default function Home() {
 
 	const features = useMemo(() => {
 		if (effectiveListMode === "nearMe") return nearMeQuery.data?.features ?? [];
+
 		if (effectiveListMode === "significant")
 			return significantFeedQuery.data?.features ?? [];
+
 		return allFeedQuery.data?.features ?? [];
 	}, [
 		effectiveListMode,
@@ -158,6 +179,7 @@ export default function Home() {
 	const refetchActive = useCallback(() => {
 		void allFeedQuery.refetch();
 		void significantFeedQuery.refetch();
+
 		if (nearMeCoords) void nearMeQuery.refetch();
 	}, [allFeedQuery, significantFeedQuery, nearMeQuery, nearMeCoords]);
 

@@ -11,10 +11,13 @@ const dist = path.join(
 	),
 	"dist",
 );
+
 const dest = path.join(process.cwd(), "public", "maplibre");
 
 mkdirSync(dest, { recursive: true });
+
 for (const file of ["maplibre-gl-worker.mjs", "maplibre-gl-shared.mjs"]) {
 	copyFileSync(path.join(dist, file), path.join(dest, file));
 }
+
 console.log("Copied maplibre-gl worker files to public/maplibre");

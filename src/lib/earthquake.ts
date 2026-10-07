@@ -94,6 +94,7 @@ const queryInputSchema = z
 	.superRefine((val, ctx) => {
 		const hasLat = val.latitude !== undefined;
 		const hasLon = val.longitude !== undefined;
+
 		if (hasLat !== hasLon) {
 			ctx.addIssue({
 				code: "custom",
@@ -101,6 +102,7 @@ const queryInputSchema = z
 				path: hasLat ? ["longitude"] : ["latitude"],
 			});
 		}
+
 		if ((hasLat || hasLon) && val.maxradiuskm === undefined) {
 			ctx.addIssue({
 				code: "custom",
@@ -111,10 +113,15 @@ const queryInputSchema = z
 	});
 
 export type EarthquakeResponse = z.infer<typeof usgsResponseSchema>;
+
 export type EarthquakeFeature = z.infer<typeof usgsFeatureSchema>;
+
 export type EarthquakeProperties = z.infer<typeof usgsPropertiesSchema>;
+
 export type FeedName = z.infer<typeof feedSchema>;
+
 export type QueryInput = z.input<typeof queryInputSchema>;
+
 export type SortOrder =
 	| "newest"
 	| "oldest"
@@ -133,26 +140,38 @@ function buildFeedUrl(feed: FeedName): string {
 
 function buildQueryUrl(input: QueryInput): string {
 	const params = new URLSearchParams({ format: "geojson" });
+
 	if (input.starttime) params.set("starttime", input.starttime);
+
 	if (input.endtime) params.set("endtime", input.endtime);
+
 	if (input.minmagnitude !== undefined)
 		params.set("minmagnitude", input.minmagnitude.toString());
+
 	if (input.maxmagnitude !== undefined)
 		params.set("maxmagnitude", input.maxmagnitude.toString());
+
 	if (input.limit) params.set("limit", input.limit.toString());
+
 	if (input.latitude !== undefined)
 		params.set("latitude", input.latitude.toString());
+
 	if (input.longitude !== undefined)
 		params.set("longitude", input.longitude.toString());
+
 	if (input.maxradiuskm !== undefined)
 		params.set("maxradiuskm", input.maxradiuskm.toString());
+
 	if (input.orderby) params.set("orderby", input.orderby);
+
 	return `https://earthquake.usgs.gov/fdsnws/event/1/query?${params}`;
 }
 
 async function fetchFeed(feed: FeedName): Promise<EarthquakeResponse> {
 	const res = await fetch(buildFeedUrl(feed));
+
 	if (!res.ok) throw new Error("Failed to fetch earthquake feed");
+
 	return usgsResponseSchema.parse(await res.json());
 }
 
@@ -160,7 +179,9 @@ async function fetchQuery(input: QueryInput): Promise<EarthquakeResponse> {
 	const validated = queryInputSchema.parse(input);
 	const url = buildQueryUrl(validated);
 	const res = await fetch(url);
+
 	if (!res.ok) throw new Error("Failed to query earthquakes");
+
 	return usgsResponseSchema.parse(await res.json());
 }
 
@@ -195,22 +216,29 @@ export function sortFeatures(
 			case "biggest": {
 				const diff =
 					(b.properties.mag ?? -Infinity) - (a.properties.mag ?? -Infinity);
+
 				return diff !== 0 ? diff : byTimeDesc(a, b);
 			}
+
 			case "smallest": {
 				const diff =
 					(a.properties.mag ?? Infinity) - (b.properties.mag ?? Infinity);
+
 				return diff !== 0 ? diff : byTimeDesc(a, b);
 			}
+
 			case "nearest":
 			case "furthest": {
 				if (!origin) return byTimeDesc(a, b);
 				const [aLng, aLat] = a.geometry.coordinates;
 				const [bLng, bLat] = b.geometry.coordinates;
+
 				const diff =
 					haversineDistanceKm(origin.lat, origin.lng, aLat, aLng) -
 					haversineDistanceKm(origin.lat, origin.lng, bLat, bLng);
+
 				const signed = order === "nearest" ? diff : -diff;
+
 				return signed !== 0 ? signed : byTimeDesc(a, b);
 			}
 		}
